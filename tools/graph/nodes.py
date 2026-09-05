@@ -1369,3 +1369,77 @@ __all__ = [
     "fetch_evidence",
     "analyze_items",
 ]
+
+# Budget wrappers are defined after the original nodes so normal graph imports
+# receive deadline-aware behavior without changing the underlying adapters.
+from .run_budget import begin_stage as _budget_begin, complete_stage as _budget_complete, should_stop_optional_work as _budget_stop
+
+_fetch_feeds_unbudgeted = fetch_feeds_node
+_collect_evidence_unbudgeted = collect_evidence_node
+_analyze_unbudgeted = analyze_with_llm_node
+_quality_unbudgeted = quality_gate_node
+_build_briefing_unbudgeted = build_briefing_node
+
+
+def _budgeted(state: dict[str, Any], stage: str, target: int, active: str | None, callback):
+    budget = state.get("_run_budget")
+    if not isinstance(budget, dict):
+        return callback()
+    _budget_begin(budget, stage, completed_count=0, target_count=target, active_item=active)
+    if _budget_stop(budget):
+        _budget_complete(budget, stage, completed_count=0, status="skipped")
+        return {"_run_budget": budget, "warnings": list(state.get("warnings", [])) + [f"Budget downgrade: {stage} stopped at {active or 'stage start'}."]}
+    update = callback()
+    completed = len(update.get("analysis", update.get("_evidence", update.get("items", []))))
+    _budget_complete(budget, stage, completed_count=completed)
+    return {**update, "_run_budget": budget}
+
+
+def fetch_feeds_node(state: dict[str, Any]) -> dict[str, Any]:
+    return _budgeted(state, "rss", 1, "RSS feeds", lambda: _fetch_feeds_unbudgeted(state))
+
+
+def collect_evidence_node(state: dict[str, Any], research_max_items: int | None = None) -> dict[str, Any]:
+    target = research_max_items or int((state.get("config", {}).get("graph", {}) or {}).get("research_max_items", 5))
+    return _budgeted(state, "evidence", target, "next evidence URL", lambda: _collect_evidence_unbudgeted(state, research_max_items))
+
+
+def analyze_with_llm_node(state: dict[str, Any]) -> dict[str, Any]:
+    target = len(state.get("ranked_items") or state.get("items") or [])
+    return _budgeted(state, "analysis", target, "next analysis item", lambda: _analyze_unbudgeted(state))
+
+
+def quality_gate_node(state: dict[str, Any]) -> dict[str, Any]:
+    update = _budgeted(state, "quality", 1, "quality gate", lambda: _quality_unbudgeted(state))
+    if update.get("_run_budget", {}).get("degraded") and "_quality_gate" not in update:
+        update["_quality_gate"] = {"passed": False, "issues": ["budget_limited"]}
+    return update
+
+
+def build_briefing_node(state: dict[str, Any]) -> dict[str, Any]:
+    update = _build_briefing_unbudgeted(state)
+    budget = state.get("_run_budget") or {}
+    if budget.get("degraded"):
+        notice = ("> **Budget-degraded briefing**: optional work stopped at "
+                  f"{budget.get('blocked_stage') or 'unknown'} ({budget.get('blocked_item') or 'unknown'}).\n"
+                  "> Evidence or quality checks may be incomplete; conclusions have lower confidence.\n\n")
+        update["briefing_markdown"] = notice + update.get("briefing_markdown", "")
+        update["briefing"]["markdown"] = update["briefing_markdown"]
+        update["warnings"] = list(update.get("warnings", [])) + ["Budget-degraded briefing delivered."]
+    return update
+_write_run_log_unbudgeted = write_run_log_node
+
+
+def write_run_log_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Persist a separate stable checkpoint summary beside the legacy log entry."""
+    update = _write_run_log_unbudgeted(state)
+    budget = state.get("_run_budget")
+    log_path = (state.get("config") or {}).get("log_path")
+    if isinstance(budget, dict) and log_path:
+        append_log(Path(log_path), {
+            "record_type": "stage_checkpoint_summary",
+            "run_id": state.get("run_id", ""),
+            "budget": budget,
+            "completed_at": _now_iso(),
+        })
+    return {**update, **({"_run_budget": budget} if isinstance(budget, dict) else {})}

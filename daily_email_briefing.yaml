@@ -7,7 +7,8 @@
   "max_ranked_items": 20,
   "request_pause_seconds": 0.3,
   "focus_assets": ["USD", "JPY", "CNY", "Gold", "Oil", "Bonds", "Equities"],
-  "output_dir": ".hermes/daily-email-output",
+  "output_dir": "output/daily-email-output/",
+  "log_path": "logs/daily-workflow.jsonl",
   "deliver_email": true,
   "market_data": {
     "enabled": true,
