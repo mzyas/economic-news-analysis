@@ -6,6 +6,9 @@ import uuid
 from datetime import datetime, timezone
 import sys
 from typing import Any
+
+from .run_budget import create_run_budget
+
 if sys.version_info >= (3, 11):
     from typing import NotRequired, TypedDict
 else:
@@ -62,6 +65,7 @@ class NewsAnalysisState(TypedDict, total=False):
     _delivery_approved: NotRequired[bool]
     _events: NotRequired[list[dict[str, Any]]]
     _research_queue: NotRequired[list[dict[str, Any]]]
+    _run_budget: NotRequired[dict[str, Any]]
 
 
 def _now_iso() -> str:
@@ -123,4 +127,5 @@ def initial_state(
         _delivery_approved=False,
         _events=[],
         _research_queue=[],
+        _run_budget=create_run_budget(config.get("daily_time_budget_seconds", 600)),
     )

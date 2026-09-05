@@ -22,7 +22,8 @@ defaults:
   request_pause_seconds: 0.3
   fetch_enabled: true
   output_dir: null
-  log_path: null
+  # Resolved against the skill/plugin root by config_loader, not the caller CWD.
+  log_path: .hermes/logs/daily-workflow.jsonl
   env_file: null
   market_data:
     enabled: false

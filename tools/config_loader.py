@@ -165,6 +165,7 @@ def load_runtime_config(
     config.setdefault("source_config", str(ROOT / "sources" / "rss_sources.yaml"))
     config.setdefault("max_items_per_source", 5)
     config.setdefault("max_ranked_items", 20)
+    config.setdefault("daily_time_budget_seconds", 900)
     # Backward compatibility with old single timeout_seconds
     if "timeout_seconds" in config:
         old = int(config["timeout_seconds"])
@@ -195,6 +196,9 @@ def load_runtime_config(
     config["env_file"] = _resolve_path(config.get("env_file"))
     if config["env_file"]:
         load_env_file(Path(str(config["env_file"])))
+    # Keep plugin runtime logs beside the deployed skill even when Hermes is
+    # launched from another working directory.
+    config["log_path"] = _resolve_path(config.get("log_path"))
     config["source_config"] = _resolve_path(str(config["source_config"]))
     config["market_data"]["source_config"] = _resolve_path(
         str(config["market_data"]["source_config"])

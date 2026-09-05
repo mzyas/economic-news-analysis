@@ -532,3 +532,23 @@ __all__ = [
     "_write_final_runtime_json",
     "_after_market_data",
 ]
+
+# Budget-aware public projection and retry routing.
+from .run_budget import public_run_summary as _public_run_summary
+
+_should_retry_or_downgrade_unbudgeted = _should_retry_or_downgrade
+_project_result_unbudgeted = _project_result
+
+
+def _should_retry_or_downgrade(state: dict[str, Any]) -> str:
+    if (state.get("_run_budget") or {}).get("degraded"):
+        return "downgrade"
+    return _should_retry_or_downgrade_unbudgeted(state)
+
+
+def _project_result(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    result = _project_result_unbudgeted(state, config)
+    budget = state.get("_run_budget")
+    if isinstance(budget, dict):
+        result["run_summary"] = _public_run_summary(budget)
+    return result

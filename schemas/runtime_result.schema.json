@@ -64,6 +64,20 @@
     "started_at": { "type": "string" },
     "completed_at": { "type": ["string", "null"] },
     "output_language": { "type": "string" },
+    "run_summary": {
+      "type": "object",
+      "properties": {
+        "total_seconds": { "type": "integer" },
+        "reserve_seconds": { "type": "integer" },
+        "remaining_seconds": { "type": "number" },
+        "degraded": { "type": "boolean" },
+        "degradation_reason": { "type": ["string", "null"] },
+        "blocked_stage": { "type": ["string", "null"] },
+        "blocked_item": { "type": ["string", "null"] },
+        "checkpoints": { "type": "array" }
+      },
+      "additionalProperties": false
+    },
     "statistics": {
       "type": "object",
       "required": [

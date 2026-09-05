@@ -35,6 +35,13 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertEqual(graph.get("max_quality_retries"), 1)
         self.assertEqual(graph.get("research_max_items"), 5)
 
+    def test_default_log_path_is_scoped_to_skill_root(self):
+        config = load_runtime_config()
+        self.assertEqual(
+            config["log_path"],
+            str(ROOT / ".hermes" / "logs" / "daily-workflow.jsonl"),
+        )
+
     def test_graph_defaults_in_daily_briefing(self):
         config = load_runtime_config(ROOT / "examples" / "daily_briefing.yaml")
         graph = config.get("graph", {})
