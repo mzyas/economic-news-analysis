@@ -17,6 +17,8 @@ from tools.credentials import (
 
 _ENV_VARS = (
     "CREDENTIALS_DIRECTORY",
+    "MIMO_API_KEY",
+    "DEEPSEEK_API_KEY",
 )
 
 
@@ -35,6 +37,21 @@ class EnvCredentialProviderTests(_CleanEnvMixin, unittest.TestCase):
 
 
 class WindowsCredentialProviderTests(_CleanEnvMixin, unittest.TestCase):
+    def test_mimo_store_precedes_deepseek_environment_credential(self):
+        store = {"mimo-key": "mimo-store"}
+        with mock.patch.dict(
+            os.environ, {"DEEPSEEK_API_KEY": "deepseek-env"}, clear=False
+        ), mock.patch(
+            "tools.credential_helper.read_credential",
+            side_effect=lambda target: store.get(target),
+        ):
+            creds = WindowsCredentialProvider().llm_credentials()
+
+        self.assertEqual(
+            creds,
+            [("mimo-store", "mimo"), ("deepseek-env", "deepseek")],
+        )
+
     def test_reads_only_deepseek_store_candidate(self):
         store = {"deepseek-key": "ds-store"}
         with mock.patch(
