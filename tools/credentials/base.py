@@ -43,14 +43,13 @@ class EnvCredentialProvider:
     once.
     """
 
-    _STORE_TARGETS: tuple[tuple[str, str], ...] = (
-        ("deepseek-key", "deepseek"),
-    )
-
-    # Environment-variable names checked before the platform secret store,
-    # in the same (env_var, source) order as _STORE_TARGETS.
-    _ENV_VARS: tuple[tuple[str, str], ...] = (
-        ("DEEPSEEK_API_KEY", "deepseek"),
+    # Each source is checked in order: environment variable first, then its
+    # platform secret-store target. This keeps MiMo ahead of DeepSeek even
+    # when one credential comes from the environment and the other from a
+    # platform store.
+    _CREDENTIAL_SOURCES: tuple[tuple[str, str, str], ...] = (
+        ("MIMO_API_KEY", "mimo-key", "mimo"),
+        ("DEEPSEEK_API_KEY", "deepseek-key", "deepseek"),
     )
 
     def _read_store(self, target: str) -> str | None:
@@ -59,18 +58,11 @@ class EnvCredentialProvider:
 
     def llm_credentials(self) -> list[LLMCredential]:
         candidates: list[LLMCredential] = []
-        seen_sources: set[str] = set()
 
-        # 1. Environment variables take priority (portable across Linux / Windows).
-        for env_var, source in self._ENV_VARS:
+        for env_var, target, source in self._CREDENTIAL_SOURCES:
             val = _clean(os.environ.get(env_var))
             if val:
                 candidates.append((val, source))
-                seen_sources.add(source)
-
-        # 2. Platform secret store as fallback (skipped if env var already won).
-        for target, source in self._STORE_TARGETS:
-            if source in seen_sources:
                 continue
             try:
                 val = _clean(self._read_store(target))
@@ -78,7 +70,6 @@ class EnvCredentialProvider:
                 val = None
             if val:
                 candidates.append((val, source))
-                seen_sources.add(source)
 
         return candidates
 
