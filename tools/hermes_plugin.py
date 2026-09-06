@@ -1,14 +1,18 @@
 """Hermes plugin boundary for the LangGraph economic-news workflow."""
 
 from __future__ import annotations
+import logging
 
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 from .config_loader import ROOT, load_runtime_config
+from .delivery_trace import effective_delivery_config
 from .graph.workflow import run_workflow
 
+
+logger = logging.getLogger(__name__)
 
 _PROFILE_CONFIG_FILENAMES = {
     "daily_email": "daily_email_briefing.yaml",
@@ -65,6 +69,8 @@ def run_langgraph_workflow(
         runtime_config = deepcopy(config) if config is not None else load_runtime_config()
     runtime_config["mode"] = run_mode
     runtime_config["stdin_text"] = source_text
+    runtime_config["_delivery_trace"] = effective_delivery_config(runtime_config, profile_config)
+    logger.info("effective delivery configuration: %s", runtime_config["_delivery_trace"])
     routes = ctx.get_config("model_routes", default={})
     if not isinstance(routes, dict):
         raise ValueError("plugin setting model_routes must be a mapping")

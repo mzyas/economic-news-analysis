@@ -127,6 +127,17 @@ class DailyEmailProfileConfigTests(TestCase):
         loader.assert_called_once_with(ROOT / "daily_email_briefing.yaml")
         self.assertEqual(workflow.call_args.args[0]["mode"], "deliver")
         self.assertEqual(workflow.call_args.args[0]["stdin_text"], "")
+        self.assertEqual(
+            workflow.call_args.args[0]["_delivery_trace"],
+            {
+                "mode": "deliver",
+                "profile_config": "daily_email",
+                "deliver_email": False,
+                "email_send": False,
+                "recipient_count": 0,
+            },
+        )
+
     def test_root_template_is_safe_to_track(self) -> None:
         config = load_runtime_config(ROOT / "daily_email_briefing.yaml")
 
