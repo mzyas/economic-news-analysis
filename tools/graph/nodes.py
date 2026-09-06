@@ -20,6 +20,7 @@ from typing import Any
 from ..analyzer import analyses_to_markdown, analyze_item, analyze_items
 from ..briefing_builder import build_daily_briefing, build_daily_briefing_html, SEPARATOR
 from ..config_loader import ROOT
+from ..delivery_trace import effective_delivery_config
 from ..email_delivery import send_email
 from ..email_render import build_combined_email_html, md_to_html, md_to_plain
 from ..run_log import read_last_entry
@@ -1154,6 +1155,22 @@ def deliver_email_node(state: dict[str, Any]) -> dict[str, Any]:
     mode = state.get("mode", "")
     pipeline_status = str(state.get("pipeline_status", "running"))
     output_status = str(state.get("output_status", "skipped"))
+    effective_config = effective_delivery_config(config)
+    delivery_requested = bool(effective_config["deliver_email"])
+
+    def _trace_fields(
+        *, email_sent: bool, email_send_attempted: bool, delivery_skip_reason: str | None
+    ) -> dict[str, Any]:
+        fields = {
+            "delivery_requested": delivery_requested,
+            "email_send_attempted": email_send_attempted,
+            "email_sent": email_sent,
+            "delivery_skip_reason": delivery_skip_reason,
+            "effective_delivery_config": effective_config,
+        }
+        logger.info("delivery trace: %s", fields)
+        return fields
+
 
     if delivery.get("email_sent"):
         run_id = state.get("run_id", "")
@@ -1162,6 +1179,7 @@ def deliver_email_node(state: dict[str, Any]) -> dict[str, Any]:
             "warnings": warnings,
             "output_files": output_files,
             "delivery": delivery,
+            **_trace_fields(email_sent=True, email_send_attempted=False, delivery_skip_reason="already_sent"),
             "email_sent": True,
             "pipeline_status": pipeline_status,
             "output_status": output_status,
@@ -1175,6 +1193,7 @@ def deliver_email_node(state: dict[str, Any]) -> dict[str, Any]:
         return {
             "warnings": warnings,
             "output_files": output_files,
+            **_trace_fields(email_sent=False, email_send_attempted=False, delivery_skip_reason="delivery_not_requested"),
             "delivery": delivery,
             "email_sent": False,
             "pipeline_status": pipeline_status,
@@ -1190,6 +1209,7 @@ def deliver_email_node(state: dict[str, Any]) -> dict[str, Any]:
         warnings.append("email.send 未启用，跳过邮件投递。")
         return {
             "warnings": warnings,
+            **_trace_fields(email_sent=False, email_send_attempted=False, delivery_skip_reason="email_send_disabled"),
             "output_files": output_files,
             "delivery": delivery,
             "email_sent": False,
@@ -1278,16 +1298,19 @@ def deliver_email_node(state: dict[str, Any]) -> dict[str, Any]:
     sent = result.sent
     if not sent:
         warnings.append(f"邮件发送失败: {result.error or '未知错误'}")
+    trace_fields = _trace_fields(email_sent=sent, email_send_attempted=True, delivery_skip_reason=None)
     delivery.update({
         "email_sent": sent,
         "delivery_status": "success" if sent else "failed",
         "delivery_kind": kind,
+        **trace_fields,
     })
     if sent:
         delivery["email_sent_at"] = _now_iso()
 
     return {
         "warnings": warnings,
+        **trace_fields,
         "output_files": output_files,
         "delivery": delivery,
         "email_sent": sent,
@@ -1315,6 +1338,10 @@ def write_run_log_node(state: dict[str, Any]) -> dict[str, Any]:
         "delivery_status": state.get("delivery_status", "skipped"),
         "delivery_kind": state.get("delivery_kind", "none"),
         "email_sent": bool(state.get("email_sent", False)),
+        "delivery_requested": bool(state.get("delivery_requested", False)),
+        "email_send_attempted": bool(state.get("email_send_attempted", False)),
+        "delivery_skip_reason": state.get("delivery_skip_reason"),
+        "effective_delivery_config": effective_delivery_config(config),
         "started_at": state.get("started_at", ""),
         "completed_at": state.get("completed_at") or _now_iso(),
         "fetched_at": state.get("started_at", ""),

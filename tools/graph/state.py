@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import sys
 from typing import Any
 
+from ..delivery_trace import effective_delivery_config
 from .run_budget import create_run_budget
 
 if sys.version_info >= (3, 11):
@@ -57,6 +58,10 @@ class NewsAnalysisState(TypedDict, total=False):
     sources: NotRequired[list[dict[str, Any]]]
     check: NotRequired[dict[str, Any]]
     skipped_sources: NotRequired[list[dict[str, Any]]]
+    delivery_requested: NotRequired[bool]
+    email_send_attempted: NotRequired[bool]
+    delivery_skip_reason: NotRequired[str | None]
+    effective_delivery_config: NotRequired[dict[str, Any]]
     email_sent: NotRequired[bool]
     _phase: NotRequired[str]
     _evidence: NotRequired[list[dict[str, Any]]]
@@ -86,6 +91,7 @@ def initial_state(
     """
 
     resolved_run_id = run_id or str(uuid.uuid4())
+    delivery_config = effective_delivery_config(config)
     return NewsAnalysisState(
         run_id=resolved_run_id,
         mode=config.get("mode", "briefing"),
@@ -98,6 +104,10 @@ def initial_state(
         delivery_status="skipped",
         delivery_kind="none",
         email_sent=False,
+        delivery_requested=bool(delivery_config["deliver_email"]),
+        email_send_attempted=False,
+        delivery_skip_reason=None,
+        effective_delivery_config=delivery_config,
         items=[],
         error_items=[],
         ranked_items=[],

@@ -182,6 +182,18 @@ class DeliverEmailConditionsTests(unittest.TestCase):
         self.assertFalse(update.get("email_sent"))
         self.assertEqual(update["delivery_status"], "skipped")
         self.assertEqual(update["delivery_kind"], "none")
+        self.assertTrue(update["delivery_requested"])
+        self.assertEqual(update["delivery_skip_reason"], "email_send_disabled")
+        self.assertEqual(
+            update["effective_delivery_config"],
+            {
+                "mode": "deliver",
+                "profile_config": None,
+                "deliver_email": True,
+                "email_send": False,
+                "recipient_count": 1,
+            },
+        )
 
     def test_quality_gate_failure_sends_partial_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

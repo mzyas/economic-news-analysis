@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from ..delivery_trace import effective_delivery_config
 
 from langgraph.graph import END, START, StateGraph
 
@@ -248,12 +249,18 @@ def build_workflow(
 
 def _project_result(state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
     """Convert the graph state to a payload that matches ``runtime_result.schema.json``."""
+    trace_config = state.get("effective_delivery_config")
+    trace_config = trace_config if isinstance(trace_config, dict) else effective_delivery_config(config)
     public: dict[str, Any] = {
         "run_id": state.get("run_id", ""),
         "mode": state.get("mode", config.get("mode", "briefing")),
         "pipeline_status": state.get("pipeline_status", "success"),
         "output_status": state.get("output_status", "skipped"),
         "delivery_status": state.get("delivery_status", "skipped"),
+        "delivery_requested": bool(state.get("delivery_requested", False)),
+        "email_send_attempted": bool(state.get("email_send_attempted", False)),
+        "delivery_skip_reason": state.get("delivery_skip_reason"),
+        "effective_delivery_config": dict(trace_config),
         "delivery_kind": state.get("delivery_kind", "none"),
         "started_at": state.get("started_at", _now_iso()),
         "completed_at": state.get("completed_at") or _now_iso(),

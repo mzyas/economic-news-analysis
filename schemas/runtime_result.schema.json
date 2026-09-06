@@ -52,6 +52,27 @@
       "type": "string",
       "enum": ["success", "failed", "skipped"]
     },
+    "delivery_requested": { "type": "boolean" },
+    "email_send_attempted": { "type": "boolean" },
+    "delivery_skip_reason": { "type": ["string", "null"] },
+    "effective_delivery_config": {
+      "type": "object",
+      "required": [
+        "mode",
+        "profile_config",
+        "deliver_email",
+        "email_send",
+        "recipient_count"
+      ],
+      "properties": {
+        "mode": { "type": "string" },
+        "profile_config": { "type": ["string", "null"] },
+        "deliver_email": { "type": "boolean" },
+        "email_send": { "type": "boolean" },
+        "recipient_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "delivery_kind": {
       "type": "string",
       "enum": [
