@@ -2,11 +2,13 @@
 
 A [LangGraph](https://langchain-ai.github.io/langgraph/) pipeline that fetches economic news,
 builds a daily Chinese-language macro briefing (market trend table → 今日资讯主线 lead items →
+📉 异动解读 news explaining large stock/index moves (only when something moved) →
 🌏 官媒宏观背景 China/US/Japan macro background → 财经媒体 / 💡 科技与AI / 🔍 Google News /
 🔥 热点速览 boards → market-impact map), and optionally emails it. It runs as a Hermes-consumed
 skill but is fully usable from the CLI.
 
-The graph stages are: **fetch** (RSS / World Bank / market data) → **normalize & dedupe** →
+The graph stages are: **fetch** (RSS / World Bank / market data) → **mover news** (price moves
+over a threshold trigger targeted Google News searches) → **normalize & dedupe** →
 **rank** (per-section quotas + per-country balance) → **analyze** (Hermes-managed LLM, translation +
 signals) → **quality gate** (strict; auto-enriches and synthesizes lead items, the China/US/Japan
 macro background, and the impact map) → **build briefing** → **write outputs** →
@@ -129,9 +131,24 @@ offline smoke on every push.
 - `checkpoint_path`, `checkpoint_keep_last` — SQLite checkpoint location and retention (only
   the newest N run threads are kept; older ones are pruned after each run).
 - Per-section quotas (`official_max_items` / `media_max_items` / `tech_max_items` /
-  `google_max_items` / `hot_max_items`) plus `max_ranked_items`.
+  `google_max_items` / `hot_max_items` / `movers_max_items`) plus `max_ranked_items`.
 - `country_balance` — per-country cap on the official/media boards (default
   `{CN:4, US:4, JP:4, default:99}`) so one country can't crowd out the others; absent disables it.
+
+## Market-mover news (`movers` block)
+
+Symbols in `sources/market_sources.yaml` whose 1-day or 1-week move crosses a threshold get a
+targeted Google News search, shown in the 📉 异动解读 section. Individual stocks
+(`asset_class: equity_stock`) only trigger searches and are hidden from the trend table;
+add or remove tickers there. All keys are optional:
+
+- `enabled` (default `true`), `day_threshold_pct` (4), `week_threshold_pct` (8).
+- `max_symbols` (5) and `items_per_symbol` (3) bound the number of searches and headlines.
+- `window` (`2d`) is the news lookback; `asset_classes` (`equity_stock`, `equity_index`) selects
+  which symbols can trigger.
+
+It only reacts to the current market data, so it cannot backfill a past drop. Skipped in `trend`
+mode and when `fetch_enabled` is false.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the graph topology and the
 briefing-board / country-balance / macro-background design.
