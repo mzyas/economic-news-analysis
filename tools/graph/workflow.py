@@ -38,6 +38,7 @@ from .nodes import (
     google_news_resolve_node,
     list_sources_node,
     load_config_node,
+    movers_news_node,
     quality_gate_node,
     rank_items_node,
     trend_table_node,
@@ -149,6 +150,7 @@ def build_workflow(
     workflow.add_node("load_config", load_config_node)
     workflow.add_node("fetch_market_data", fetch_market_data_node)
     workflow.add_node("fetch_feeds", fetch_feeds_node)
+    workflow.add_node("movers_news", movers_news_node)
     workflow.add_node("google_news_resolve", google_news_resolve_node)
     workflow.add_node("rank_items", rank_items_node)
     workflow.add_node("collect_evidence", collect_evidence_node)
@@ -188,7 +190,8 @@ def build_workflow(
             "write_outputs": "write_outputs",
         },
     )
-    workflow.add_edge("fetch_feeds", "google_news_resolve")
+    workflow.add_edge("fetch_feeds", "movers_news")
+    workflow.add_edge("movers_news", "google_news_resolve")
     workflow.add_edge("google_news_resolve", "rank_items")
     workflow.add_conditional_edges(
         "rank_items",

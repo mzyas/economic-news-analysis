@@ -66,6 +66,20 @@
         "interval": { "type": "string" }
       }
     },
+    "movers": {
+      "type": "object",
+      "description": "News searches triggered by large price moves in market_data symbols.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "day_threshold_pct": { "type": "number", "minimum": 0 },
+        "week_threshold_pct": { "type": "number", "minimum": 0 },
+        "max_symbols": { "type": "integer", "minimum": 0 },
+        "items_per_symbol": { "type": "integer", "minimum": 1 },
+        "window": { "type": "string", "pattern": "^[0-9]+[dh]$" },
+        "asset_classes": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
     "graph": {
       "type": "object",
       "properties": {
@@ -80,6 +94,7 @@
         "tech_max_items": { "type": "integer", "minimum": 1 },
         "google_max_items": { "type": "integer", "minimum": 1 },
         "hot_max_items": { "type": "integer", "minimum": 1 },
+        "movers_max_items": { "type": "integer", "minimum": 1 },
         "llm_concurrency": { "type": "integer", "minimum": 1 },
         "enrich_max_items": { "type": "integer", "minimum": 1 },
         "recursion_limit": { "type": "integer", "minimum": 1 },
