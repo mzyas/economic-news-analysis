@@ -33,6 +33,8 @@ uv run python tools/runtime.py --config examples/daily_briefing.yaml
 uv run python tools/runtime.py --config examples/single_article.yaml --format markdown
 ```
 
+**WSL / Windows share this folder.** Each needs its own virtualenv: WSL uses the default `.venv` (plain `uv ...`); Windows uses `.venv-win` via `.\scripts\uv-win.ps1 ...` (e.g. `.\scripts\uv-win.ps1 run python -m pytest`).
+
 The CLI prints a JSON runtime result (or markdown with `--format markdown`) and exits
 non-zero on `status: failed`.
 
