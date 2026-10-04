@@ -35,6 +35,7 @@ from .llm_runtime import get_run_hermes_llm
 
 from ..market_data import build_market_context
 from ..markdown_writer import write_markdown_artifact
+from ..movers import fetch_mover_items, movers_enabled
 from ..relevance_ranker import balance_by_country, rank_items
 from ..run_log import append_log, evaluate_fetch_window
 from ..trend_table import build_trend_rows, render_html, render_markdown
@@ -249,6 +250,41 @@ def fetch_feeds_node(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def movers_news_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Search news for symbols whose price move crossed the configured threshold."""
+    config = state.get("config", {}) or {}
+    mode = state.get("mode", "briefing")
+    if (
+        mode not in {"briefing", "deliver"}
+        or not config.get("fetch_enabled", True)
+        or not movers_enabled(config)
+    ):
+        return {"_phase": "movers_skipped"}
+
+    snapshots = list((state.get("market_context") or {}).get("snapshots", []))
+    try:
+        mover_items, errors = fetch_mover_items(
+            snapshots,
+            config,
+            int(config.get("connect_timeout", 10)),
+            int(config.get("read_timeout", 40)),
+        )
+    except Exception as exc:
+        logger.exception("movers_news failed")
+        return {
+            "_phase": "movers_fetched",
+            "errors": _append_errors(state, [{"type": "MoverError", "message": str(exc)}]),
+        }
+
+    items = list(state.get("items", []))
+    seen = {str(item.get("id", "")) for item in items}
+    new_items = [item for item in mover_items if item["id"] not in seen]
+    update: dict[str, Any] = {"items": items + new_items, "_phase": "movers_fetched"}
+    if errors:
+        update["errors"] = _append_errors(state, errors)
+    return update
+
+
 def google_news_resolve_node(state: dict[str, Any]) -> dict[str, Any]:
     """Resolve Google News discovery links without dropping unverified entries."""
     items = list(state.get("items", []))
@@ -300,6 +336,7 @@ def rank_items_node(state: dict[str, Any]) -> dict[str, Any]:
         max_tech = _cap("tech_max_items", 6)
         max_google = _cap("google_max_items", 6)
         max_hot = _cap("hot_max_items", 5)
+        max_movers = _cap("movers_max_items", 6)
 
         # Optional per-country cap to stop one country (historically China)
         # from crowding out the rest. Shape: ``{"CN": 4, "US": 4, "JP": 4,
@@ -314,6 +351,7 @@ def rank_items_node(state: dict[str, Any]) -> dict[str, Any]:
         tech_items = [i for i in items if _item_category(i) == "tech"]
         google_items = [i for i in items if _item_category(i) == "google"]
         hot_items = [i for i in items if _item_category(i) == "hot"]
+        mover_items = [i for i in items if _item_category(i) == "movers"]
 
         # Rank each group independently. When country-balancing is on, rank the
         # macro-bearing groups WITHOUT truncating first — otherwise the quota cut
@@ -328,6 +366,7 @@ def rank_items_node(state: dict[str, Any]) -> dict[str, Any]:
         ranked_tech = rank_items(tech_items, focus, max_tech)
         ranked_google = rank_items(google_items, focus, max_google)
         ranked_hot = rank_items(hot_items, focus, max_hot)
+        ranked_movers = rank_items(mover_items, focus, max_movers)
 
         # Balance the country mix within the two macro-bearing groups (official
         # and media), applying the per-section limit here. Google News is
@@ -341,9 +380,15 @@ def rank_items_node(state: dict[str, Any]) -> dict[str, Any]:
                 ranked_media, country_balance, max_media
             )
 
-        # Merge, preserving order: official → media → tech → google → hot
+        # Merge, preserving order: official → media → tech → google → hot → movers
+        # (movers last so existing section ordering and mainline picks are unchanged)
         ranked = (
-            ranked_official + ranked_media + ranked_tech + ranked_google + ranked_hot
+            ranked_official
+            + ranked_media
+            + ranked_tech
+            + ranked_google
+            + ranked_hot
+            + ranked_movers
         )
     except Exception as exc:
         logger.exception("rank_items failed")
@@ -1040,7 +1085,12 @@ def trend_table_node(state: dict[str, Any]) -> dict[str, Any]:
     ``no_data`` status so downstream nodes can adjust accordingly.
     """
     market_context = state.get("market_context", {}) or {}
-    snapshots = list(market_context.get("snapshots", []))
+    # Individual stocks only trigger mover news searches; keep them out of the table.
+    snapshots = [
+        snap
+        for snap in market_context.get("snapshots", [])
+        if snap.get("asset_class") != "equity_stock"
+    ]
 
     if not snapshots:
         return {

@@ -68,12 +68,15 @@ def _item_category(item: dict[str, Any]) -> str:
     """Classify an item into a briefing section.
 
     Returns one of ``\"official\"`` (央行/政府/国际组织), ``\"media\"`` (财经媒体),
-    ``\"tech\"`` (科技与AI), ``\"hot\"`` (综合热点), or ``\"google\"`` (Google News).
+    ``\"tech\"`` (科技与AI), ``\"hot\"`` (综合热点), ``\"google\"`` (Google News), or
+    ``\"movers\"`` (行情异动触发的个股/指数新闻).
     Classification is by source ``category`` — tech_media/tech_search → tech,
     hot_search → hot — checked before the generic Google-News fallback so that
     tech/hot keyword feeds land in their dedicated boards.
     """
     cat = str(item.get("source", {}).get("category", ""))
+    if cat == "market_mover":
+        return "movers"
     if cat in ("tech_media", "tech_search"):
         return "tech"
     if cat == "hot_search":
@@ -313,6 +316,13 @@ def build_daily_briefing_model(
         r for r in rows
         if _item_category(r[0]) == "hot" and not _is_finance_or_tech(r[0])
     ]
+    mover_rows = []
+    for item, analysis in (r for r in rows if _item_category(r[0]) == "movers"):
+        row = _row(item, analysis)
+        trigger = (item.get("mover") or {}).get("trigger")
+        if trigger:
+            row["topic"] = _table_text(trigger)
+        mover_rows.append(row)
     return {
         "date": report_date or date.today().isoformat(),
         "mainlines": _mainlines(items, analysis_by_id, daily_mainlines),
@@ -323,6 +333,7 @@ def build_daily_briefing_model(
         "tech": [_row(item, analysis) for item, analysis in tech_items],
         "google": [_row(item, analysis) for item, analysis in google_items],
         "hot": [_row(item, analysis) for item, analysis in hot_items],
+        "movers": mover_rows,
     }
 
 
@@ -365,6 +376,9 @@ def build_daily_briefing(items: list[dict[str, Any]], analyses: list[dict[str, A
     )
     if not model["mainlines"]:
         lines.append("1. 暂无可核验的高优先级宏观主题。")
+    if model["movers"]:
+        lines += ["", "", "📉 异动解读"]
+        lines += _markdown_table(model["movers"])
     # 官方/政府消息归并为「中美日宏观背景」三段，不再逐条铺成表格。
     lines += ["", SEPARATOR, "", "🌏 官媒宏观背景（中美日）"]
     lines += [f"- **{label}：** {text}" for label, text in model["macro_background"]]
@@ -432,10 +446,11 @@ def build_daily_briefing_html(items: list[dict[str, Any]], analyses: list[dict[s
     tech = _html_table(model["tech"]) if model["tech"] else "<p>暂无科技与AI新闻。</p>"
     google = _html_table(model["google"]) if model["google"] else "<p>暂无 Google News 快讯。</p>"
     hot = _html_table(model["hot"]) if model["hot"] else "<p>暂无热点新闻。</p>"
+    movers = f"<h2>📉 异动解读</h2>{_html_table(model['movers'])}\n" if model["movers"] else ""
     impact_html = "".join(f"<li>{escape(line[2:])}</li>" for line in _market_impact_lines(market_impact))
     watchlist_html = "".join(f"<li>{escape(line)}</li>" for line in model["weekly_watchlist"])
     return f"""<h2>今日资讯主线</h2><ol>{mainlines}</ol>
-<hr><h2>🌏 官媒宏观背景（中美日）</h2><ul>{macro_html}</ul>
+{movers}<hr><h2>🌏 官媒宏观背景（中美日）</h2><ul>{macro_html}</ul>
 <h2>🌐 财经媒体新闻</h2>{media}
 <h2>💡 科技与AI</h2>{tech}
 <h2>🔍 Google News 快讯</h2>{google}

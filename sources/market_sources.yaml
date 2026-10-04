@@ -169,3 +169,254 @@ symbols:
     display_precision: 2
     region: US
     currency: USD
+
+  # ── Individual stocks (news triggers only; hidden from the trend table) ──
+  - id: nvda
+    ticker: NVDA
+    name: NVIDIA
+    name_zh: 英伟达
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: avgo
+    ticker: AVGO
+    name: Broadcom
+    name_zh: 博通
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: amd
+    ticker: AMD
+    name: AMD
+    name_zh: 超威半导体
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: amat
+    ticker: AMAT
+    name: Applied Materials
+    name_zh: 应用材料
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: mu
+    ticker: MU
+    name: Micron Technology
+    name_zh: 美光科技
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: intc
+    ticker: INTC
+    name: Intel
+    name_zh: 英特尔
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: qcom
+    ticker: QCOM
+    name: Qualcomm
+    name_zh: 高通
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: smci
+    ticker: SMCI
+    name: Super Micro Computer
+    name_zh: 超微电脑
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: arm
+    ticker: ARM
+    name: Arm Holdings
+    name_zh: 安谋
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: lrcx
+    ticker: LRCX
+    name: Lam Research
+    name_zh: 泛林集团
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: klac
+    ticker: KLAC
+    name: KLA Corporation
+    name_zh: 科磊
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: tsm
+    ticker: TSM
+    name: TSMC
+    name_zh: 台积电
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: asml
+    ticker: ASML
+    name: ASML
+    name_zh: 阿斯麦
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: aapl
+    ticker: AAPL
+    name: Apple
+    name_zh: 苹果
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: msft
+    ticker: MSFT
+    name: Microsoft
+    name_zh: 微软
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: googl
+    ticker: GOOGL
+    name: Alphabet
+    name_zh: 谷歌母公司Alphabet
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: amzn
+    ticker: AMZN
+    name: Amazon
+    name_zh: 亚马逊
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: meta
+    ticker: META
+    name: Meta Platforms
+    name_zh: Meta
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: tsla
+    ticker: TSLA
+    name: Tesla
+    name_zh: 特斯拉
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: US
+    currency: USD
+
+  - id: tokyo_electron
+    ticker: 8035.T
+    name: Tokyo Electron
+    name_zh: 东京电子
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: JP
+    currency: JPY
+
+  - id: advantest
+    ticker: 6857.T
+    name: Advantest
+    name_zh: 爱德万测试
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: JP
+    currency: JPY
+
+  - id: softbank_group
+    ticker: 9984.T
+    name: SoftBank Group
+    name_zh: 软银集团
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: JP
+    currency: JPY
+
+  - id: toyota
+    ticker: 7203.T
+    name: Toyota Motor
+    name_zh: 丰田汽车
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: JP
+    currency: JPY
+
+  - id: tencent
+    ticker: 0700.HK
+    name: Tencent
+    name_zh: 腾讯控股
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: HK
+    currency: HKD
+
+  - id: alibaba
+    ticker: 9988.HK
+    name: Alibaba
+    name_zh: 阿里巴巴
+    asset_class: equity_stock
+    asset_type: price
+    display_precision: 2
+    region: HK
+    currency: HKD
