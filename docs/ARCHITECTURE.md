@@ -20,7 +20,7 @@ economic-news-analysis  v0.8.0
 └── uv.lock             → 依赖锁定
 ```
 
-**功能定位**：多源经济新闻抓取 → 归一化 → LLM 分析 → 质量门控 → 简报生成 → 邮件投递的自动化管道。支持传统 Runtime 和 LangGraph 两种执行模式。v0.7.0 新增**无 LLM 独立趋势表**（`trend` mode），用于每日低成本的确定性市场数据输出。v0.8.0 新增**排序国家均衡**、**官媒宏观背景（中美日）LLM 合成**，以及 **💡 科技与AI / 🔥 热点速览板块**（详见 §5b）。
+**功能定位**：多源经济新闻抓取 → 归一化 → LLM 分析 → 质量门控 → 简报生成 → 邮件投递的自动化管道。支持传统 Runtime 和 LangGraph 两种执行模式。v0.7.0 新增**无 LLM 独立趋势表**（`trend` mode），用于每日低成本的确定性市场数据输出。v0.8.0 新增**排序国家均衡**、**官媒宏观背景（中美日）LLM 合成**，以及 **💡 科技与AI / 🔥 热点速览板块**（详见 §5b）。v0.9.0 新增**行情异动新闻**（`movers_news` 节点，详见 §5b.4）。
 
 ---
 
@@ -57,9 +57,9 @@ class NewsAnalysisState(TypedDict, total=False):
 
 ### 2.2 节点拓扑 — `tools/graph/nodes.py`
 
-15 个图节点，每个是一个纯函数 `(state) → state_update`：
+16 个图节点，每个是一个纯函数 `(state) → state_update`：
 
-#### 完整拓扑（15 个节点，所有边均列出）
+#### 完整拓扑（16 个节点，所有边均列出）
 
 ```text
                                 ENTRY
@@ -96,6 +96,10 @@ class NewsAnalysisState(TypedDict, total=False):
                     │             ▼         ▼           ▼
                     │           END    write_outputs  fetch_feeds
                     │         (结束)    (写入输出)    (抓取RSS)
+                    │                                         │
+                    │                                         ▼
+                    │                                    movers_news
+                    │                                   (异动新闻)
                     │                                         │
                     │                                         ▼
                     │                                  google_news_resolve
@@ -347,10 +351,11 @@ Google News → translated_title 已提供？    → 缺失则拒绝 ✅ (v0.6.0
 
 ### 5b.1 板块结构（`tools/briefing_builder.py`）
 
-简报固定六个内容区，顺序为：
+简报固定六个内容区（另有条件区「📉 异动解读」，仅在出现异动时插入，见 §5b.4），顺序为：
 
 ```
 今日资讯主线（逐条，≤5）
+📉 异动解读                ← 条件区：行情异动标的的定向新闻（§5b.4）
 🌏 官媒宏观背景（中美日）   ← 官方条目按国别归并的三段叙述，优先 LLM 合成
 🌐 财经媒体新闻             ← news_media 表格
 💡 科技与AI                ← tech_media / tech_search 表格
@@ -358,7 +363,7 @@ Google News → translated_title 已提供？    → 缺失则拒绝 ✅ (v0.6.0
 🔥 热点速览                ← hot_search 综合头条，排除财经/科技/AI
 ```
 
-`_item_category(item)` 按来源 `category` 分类（先于 Google-News 兜底）：`tech_media`/`tech_search`→`tech`，`hot_search`→`hot`，`news_media`→`media`，其余官方/政府/央行→`official`。热点板块再用 `_is_finance_or_tech()` 关键词剔除财经/科技/AI 条目，只留「其它高热」。
+`_item_category(item)` 按来源 `category` 分类（先于 Google-News 兜底）：`market_mover`→`movers`，`tech_media`/`tech_search`→`tech`，`hot_search`→`hot`，`news_media`→`media`，其余官方/政府/央行→`official`。热点板块再用 `_is_finance_or_tech()` 关键词剔除财经/科技/AI 条目，只留「其它高热」。
 
 ### 5b.2 国家均衡（`rank_items_node`）
 
@@ -371,7 +376,25 @@ Google News → translated_title 已提供？    → 缺失则拒绝 ✅ (v0.6.0
 
 ### 5b.3 每板块配额（`graph` 块）
 
-`official_max_items` / `media_max_items` / `tech_max_items`(默认6) / `google_max_items`(6) / `hot_max_items`(5)；schema 见 `runtime_input.schema.json`。
+`official_max_items` / `media_max_items` / `tech_max_items`(默认6) / `google_max_items`(6) / `hot_max_items`(5) / `movers_max_items`(6)；schema 见 `runtime_input.schema.json`。
+
+### 5b.4 行情异动新闻（`tools/movers.py`，v0.9.0）
+
+趋势表只说明「涨跌了」，不解释原因；宏观 RSS 也覆盖不到个股事件。`movers_news` 把行情和新闻接起来：
+
+```
+fetch_market_data → trend_table → fetch_feeds → movers_news → google_news_resolve → rank_items
+```
+
+- **选取**（`select_movers`）：仅看 `status=success`、`asset_type=price`、`asset_class` 在 `movers.asset_classes`（默认 `equity_stock` + `equity_index`）内的快照；日涨跌 ≥ `day_threshold_pct`（默认 4）或周涨跌 ≥ `week_threshold_pct`（默认 8）即命中，按超阈值倍数从大到小取 `max_symbols`（默认 5）个。
+- **检索**：每个命中标的构造 `"<name>" stock when:2d` 的 Google News RSS 查询，取 `items_per_symbol`（默认 3）条；来源 id 为 `google_news_mover_<symbol_id>`，类别 `market_mover`，因此照常经 `google_news_resolve` 解析发布页。
+- **标注**：每条新闻带 `mover.trigger`（如 `NVIDIA 日 -6.2% / 周 -9.1%`），渲染时写入表格「主题」列。
+- **板块**：`_item_category` 返回 `movers`，`rank_items_node` 给独立配额 `movers_max_items`，排在其它板块之后；不会混入官方/Google 板块。
+- **个股只触发、不入表**：`market_sources.yaml` 中 `asset_class: equity_stock` 的标的由 `trend_table_node` 过滤，趋势表仍是原来的 16 个资产。
+- **降级**：单个查询失败只记入 `errors`（`MoverFetchError`）；节点异常记 `MoverError`，均不中断主流程。`trend` 模式、`fetch_enabled=false`、`movers.enabled=false` 时整体跳过。
+- **限制**：只能抓当前行情窗口内的异动，无法回填历史某天的大跌。
+
+配置（均有默认值，见 `schemas/runtime_input.schema.json` 的 `movers` 块）：`enabled`、`day_threshold_pct`、`week_threshold_pct`、`max_symbols`、`items_per_symbol`、`window`、`asset_classes`。
 
 ---
 
@@ -523,7 +546,7 @@ initial_state()             ← NewsAnalysisState
 build_workflow()            ← StateGraph 装配
   │
   ▼
-graph.invoke(state)         ← 图执行（15个节点，条件路由）
+graph.invoke(state)         ← 图执行（16个节点，条件路由）
   │
   ├── load_config           → 加载源列表、过滤
   ├── fetch_market_data     → yfinance 快照（所有模式均执行）
@@ -534,6 +557,7 @@ graph.invoke(state)         ← 图执行（15个节点，条件路由）
   │
   │  ── 以下仅非 trend 模式执行 ──
   ├── fetch_feeds           → RSS/API 抓取（connect_timeout/read_timeout）
+  ├── movers_news           → 异动标的 → Google News 定向检索（仅 briefing/deliver）
   ├── google_news_resolve   → 解析 Google News 发现链接
   ├── rank_items            → 宏观相关性排序
   ├── collect_evidence      → 证据收集（可选 LLM 辅助）
@@ -771,7 +795,7 @@ cron 运行时，Hermes 会：
 ┌─ Header ──── 深色渐变 + 金色标题 + JST 日期
 ├─ 趋势表 ──── 16 个资产，英文名在上中文名在下，单位前置
 ├─ 简报区 ──── 条件区域，有新闻且非重复时才显示。板块顺序：
-│              今日资讯主线 → 🌏 官媒宏观背景（中美日）→ 🌐 财经媒体 →
+│              今日资讯主线 → 📉 异动解读（条件）→ 🌏 官媒宏观背景（中美日）→ 🌐 财经媒体 →
 │              💡 科技与AI → 🔍 Google News 快讯 → 🔥 热点速览 → 市场影响地图 …
 └─ Footer ──── Economic News Analysis v{version}
 ```
