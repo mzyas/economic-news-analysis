@@ -73,7 +73,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _stub_invoke(self: Any, prompt: str) -> str:  # noqa: ARG001 - signature match
+def _stub_invoke(self: Any, prompt: str, *, node: str = "analysis") -> str:  # noqa: ARG001 - signature match
     """Deterministic offline LLM stand-in returning canned valid JSON.
 
     Branches on the prompt so the market-impact synthesis gets its 5-key map
