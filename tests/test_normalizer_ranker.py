@@ -1,7 +1,13 @@
 import unittest
+from datetime import date, timedelta
 
 from tools.normalizer import normalize_news_items
 from tools.relevance_ranker import balance_by_country, rank_items
+
+
+def _days_ago(days: int) -> str:
+    """Relative date so freshness scoring does not rot as the calendar moves."""
+    return (date.today() - timedelta(days=days)).isoformat()
 
 
 class NormalizerRankerTests(unittest.TestCase):
@@ -67,7 +73,7 @@ class NormalizerRankerTests(unittest.TestCase):
                 "source_name": "Federal Reserve",
                 "source_country": "US",
                 "source_tags": ["monetary_policy", "inflation"],
-                "published": f"2026-06-{13 - index:02d}",
+                "published": _days_ago(index),
             }
             for index in range(12)
         ]
@@ -79,7 +85,7 @@ class NormalizerRankerTests(unittest.TestCase):
                 "source_name": "Google News",
                 "source_country": "Global",
                 "source_tags": ["inflation", "geopolitics"],
-                "published": f"2026-06-{13 - index:02d}",
+                "published": _days_ago(index),
             }
             for index in range(4)
         ]
