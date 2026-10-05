@@ -6,6 +6,7 @@ from tools.email_render import (
     md_to_html,
     md_to_plain,
     slim_news_tables,
+    _trim_news_cell,
 )
 
 TREND_ROWS = [
@@ -171,6 +172,45 @@ class LinkSafetyTests(unittest.TestCase):
     def test_plain_text_strips_link_with_parentheses_url(self):
         plain = md_to_plain("[w](https://en.wikipedia.org/wiki/Foo_(bar)) 结尾")
         self.assertEqual(plain, "w 结尾")
+
+
+class PlaceholderRobustnessTests(unittest.TestCase):
+    def test_nul_in_input_does_not_crash(self):
+        self.assertEqual(inline_format("hello \x003\x00"), "hello 3")
+        self.assertIn("x", md_to_html("x\x001\x00"))
+
+    def test_nul_cannot_duplicate_a_real_anchor(self):
+        out = inline_format("[a](https://e.com/a) \x000\x00")
+        self.assertEqual(out.count("<a "), 1)
+
+
+class ClauseSplitTests(unittest.TestCase):
+    HEADER = "| 重要性 | 地区 | 主题 | 新闻内容 | 核心信号 | 关注资产 |"
+
+    def test_semicolon_inside_bold_title_is_kept(self):
+        cell = "**美联储维持利率不变；鲍威尔称将保持耐心**；摘要；来源：路透；🕒 今天"
+        self.assertEqual(
+            _trim_news_cell(cell),
+            "**美联储维持利率不变；鲍威尔称将保持耐心**；来源：路透；🕒 今天",
+        )
+
+    def test_semicolon_inside_link_label_is_kept(self):
+        cell = "**标题**；摘要；来源：X [发布页；副](https://e.com/a)；🕒 今天"
+        self.assertIn("[发布页；副](https://e.com/a)", _trim_news_cell(cell))
+
+    def test_summary_mentioning_source_is_still_dropped(self):
+        cell = "**标题**；委员会关注来源：就业数据；来源：X；🕒 今天"
+        self.assertNotIn("委员会", _trim_news_cell(cell))
+
+    def test_bold_title_with_semicolon_does_not_leak_into_next_column(self):
+        row = (
+            "| ★★ | 美国 | 货币政策 | **美联储维持利率不变；鲍威尔称将保持耐心**；摘要；来源：路透；🕒 今天 | "
+            "**鹰派**信号增强 | 美元 |"
+        )
+        out = slim_news_tables(f"{self.HEADER}\n|---|---|---|---|---|---|\n{row}")
+        html = md_to_html(out)
+        self.assertIn("<strong>美联储维持利率不变；鲍威尔称将保持耐心</strong>", html)
+        self.assertNotIn("**", html)
 
 
 class PlainTextEscapeAndIndentTests(unittest.TestCase):

@@ -29,10 +29,41 @@ def _split_md_row(line: str) -> list[str]:
     return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
 
 
+def _split_clauses(text: str) -> list[str]:
+    """Split on ``；`` outside ``**bold**`` spans and ``[label](url)`` links."""
+    parts: list[str] = []
+    buf: list[str] = []
+    bold = False
+    depth = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if text.startswith("**", i):
+            bold = not bold
+            buf.append("**")
+            i += 2
+            continue
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth = max(depth - 1, 0)
+        if ch == "；" and not bold and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
 def _trim_news_cell(cell: str) -> str:
     """Keep the title, source and timestamp clauses; drop the summary prose."""
-    clauses = cell.split("；")
-    kept = [c for i, c in enumerate(clauses) if i == 0 or "来源：" in c or "🕒" in c]
+    clauses = _split_clauses(cell)
+    kept = [
+        c for i, c in enumerate(clauses)
+        if i == 0 or c.lstrip().startswith("来源：") or "🕒" in c
+    ]
     return "；".join(kept) if kept else cell
 
 
@@ -205,7 +236,8 @@ def md_to_html(text: str) -> str:
 
 def inline_format(text: str) -> str:
     """Handle inline formatting: links, bold, italic, escapes."""
-    text = text.replace("\\|", "|")
+    # NUL delimits the link placeholders below, so it must not occur in the input.
+    text = text.replace("\x00", "").replace("\\|", "|")
     anchors: list[str] = []
 
     def _stash_link(m: re.Match) -> str:
