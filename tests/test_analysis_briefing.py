@@ -253,8 +253,30 @@ class AnalysisBriefingTests(unittest.TestCase):
             report.index("来源：国家统计局"),
         )
         self.assertIn("<strong>中国5月经济数据集中发布：工业加速、消费疲弱、投资分化</strong> —", html)
-        self.assertIn("<strong>中国5月经济数据发布</strong>；工业增长加速而消费承压", html)
-        self.assertIn("width:44%", html)
+        self.assertIn("<strong>中国5月经济数据发布</strong>；", html)
+        self.assertNotIn("工业增长加速而消费承压，房地产投资", html)
+        self.assertIn("width:46%", html)
+
+    def test_html_table_uses_slim_email_layout(self):
+        item = score_item(normalize_news_item({
+            "title": "Fed holds rates",
+            "summary": "Verified summary.",
+            "source_country": "US",
+            "source_name": "Example",
+            "url": "https://example.com/fed",
+            "source_category": "news_media",
+        }))
+        item["relevance_score"] = 0.9
+        analysis = analyze_item(item)
+        analysis["focus_assets"] = ["美国国债", "美股", "黄金"]
+        html = build_daily_briefing_html([item], [analysis], "2026-06-21")
+        self.assertNotIn(">地区<", html)
+        self.assertEqual(html.count("<th ") % 5, 0)
+        self.assertIn(">高</td>", html)
+        self.assertNotIn("★", html)
+        self.assertIn("美国<br>", html)
+        self.assertIn("美国国债<br>美股<br>黄金", html)
+        self.assertNotIn("美股、", html)
 
     def test_official_items_fold_into_macro_background(self):
         ids = {"CN": "pboc_rss", "US": "fed_fomc", "JP": "boj_rss"}
