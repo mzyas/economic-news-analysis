@@ -9,6 +9,7 @@ Usage:
 """
 
 import argparse
+import html
 import re
 import sys
 from pathlib import Path
@@ -18,9 +19,14 @@ from collections.abc import Sequence
 NEWS_TABLE_HEADER = ["重要性", "地区", "主题", "新闻内容", "核心信号", "关注资产"]
 
 
+# Link target allows one level of balanced parentheses, e.g. wiki/Foo_(bar).
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:[^\s()]|\([^\s()]*\))+)\)")
+_SAFE_URL_RE = re.compile(r"^(?:https?://|mailto:)", re.IGNORECASE)
+
+
 def _split_md_row(line: str) -> list[str]:
     """Split a markdown table row on unescaped pipes (``\\|`` stays in-cell)."""
-    return [c.strip() for c in re.split(r"(?<!\\)\|", line)[1:-1]]
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
 
 
 def _trim_news_cell(cell: str) -> str:
@@ -59,7 +65,7 @@ def slim_news_tables(text: str) -> str:
         if line.strip().startswith("|") and _split_md_row(line) == NEWS_TABLE_HEADER:
             out.append("| 重要性 | 主题 | 新闻内容 | 核心信号 | 关注资产 |")
             i += 1
-            if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i]):
+            if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
                 i += 1
             while i < len(lines) and lines[i].strip().startswith("|"):
                 row = _split_md_row(lines[i])
@@ -150,7 +156,7 @@ def md_to_html(text: str) -> str:
                 html_lines.append("</thead><tbody>")
                 i += 1
                 # Skip separator row (|---|---|)
-                if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i]):
+                if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
                     i += 1
                 continue
             else:
@@ -192,16 +198,27 @@ def md_to_html(text: str) -> str:
 def inline_format(text: str) -> str:
     """Handle inline formatting: links, bold, italic, escapes."""
     text = text.replace("\\|", "|")
-    text = re.sub(r"\[([^\]]+)\]\(([^\s)]+)\)", r'<a href="\2">\1</a>', text)
+    anchors: list[str] = []
+
+    def _stash_link(m: re.Match) -> str:
+        label, url = m.group(1), m.group(2)
+        if not _SAFE_URL_RE.match(url):
+            return label
+        anchors.append(f'<a href="{html.escape(url, quote=True)}">{label}</a>')
+        return f"\x00{len(anchors) - 1}\x00"
+
+    # Anchors are stashed so bold/italic regexes cannot rewrite the URL.
+    text = _LINK_RE.sub(_stash_link, text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda m: anchors[int(m.group(1))], text)
 
 
 def md_to_plain(text: str) -> str:
     """Strip markdown markers for plain text version."""
     text = slim_news_tables(text)
-    text = re.sub(r"\[([^\]]+)\]\([^\s)]+\)", r"\1", text)
+    text = text.replace("\\|", "|")
+    text = _LINK_RE.sub(r"\1", text)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"\*(.+?)\*", r"\1", text)
     text = re.sub(r"^#{1,3}\s+", "", text, flags=re.MULTILINE)

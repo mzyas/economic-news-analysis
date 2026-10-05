@@ -2,8 +2,10 @@ import unittest
 
 from tools.email_render import (
     build_combined_email_html,
+    inline_format,
     md_to_html,
     md_to_plain,
+    slim_news_tables,
 )
 
 TREND_ROWS = [
@@ -122,6 +124,53 @@ class LinkRenderingTests(unittest.TestCase):
             "| 主题 | 新闻 |\n|---|---|\n| x | **标题**；来源：Y [发布页](https://e.com/b)；🕒 今天 |"
         )
         self.assertIn('<a href="https://e.com/b">发布页</a>', html)
+
+
+class LinkSafetyTests(unittest.TestCase):
+    def test_quote_in_url_cannot_break_out_of_href(self):
+        out = inline_format('[a](https://x.com/a"onmouseover="alert(1))')
+        self.assertNotIn('"onmouseover', out)
+        self.assertEqual(out.count("<a "), 1)
+        self.assertIn("&quot;", out)
+
+    def test_unsafe_scheme_is_not_linked(self):
+        out = inline_format("[点我](javascript:alert(1))")
+        self.assertNotIn("<a", out)
+        self.assertNotIn("javascript", out)
+        self.assertIn("点我", out)
+
+    def test_balanced_parentheses_kept_in_url(self):
+        out = inline_format("[w](https://en.wikipedia.org/wiki/Foo_(bar))")
+        self.assertEqual(out, '<a href="https://en.wikipedia.org/wiki/Foo_(bar)">w</a>')
+
+    def test_emphasis_does_not_rewrite_url(self):
+        out = inline_format("[a](https://x.com/a_*b*_c) *斜体*")
+        self.assertIn('href="https://x.com/a_*b*_c"', out)
+        self.assertIn("<em>斜体</em>", out)
+
+    def test_plain_text_strips_link_with_parentheses_url(self):
+        plain = md_to_plain("[w](https://en.wikipedia.org/wiki/Foo_(bar)) 结尾")
+        self.assertEqual(plain, "w 结尾")
+
+
+class PlainTextEscapeAndIndentTests(unittest.TestCase):
+    HEADER = "| 重要性 | 地区 | 主题 | 新闻内容 | 核心信号 | 关注资产 |"
+
+    def test_plain_text_unescapes_pipe(self):
+        plain = md_to_plain("| a \\| b | c |\n|---|---|\n| x \\| y | z |")
+        self.assertNotIn("\\|", plain)
+        self.assertIn("x | y", plain)
+
+    def test_indented_news_table_is_still_slimmed(self):
+        table = (
+            f" {self.HEADER}\n"
+            " |---|---|---|---|---|---|\n"
+            " | ★ | 美国 | 通胀 | 标题；摘要；来源：X；🕒 今天 | 信号 | 黄金 |\n"
+        )
+        out = slim_news_tables(table)
+        self.assertNotIn("地区", out)
+        self.assertIn("美国·通胀", out)
+        self.assertNotIn("摘要", out)
 
 
 class EscapedPipeTests(unittest.TestCase):
