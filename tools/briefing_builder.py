@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from html import escape
 from typing import Any
 
+from .email_render import _importance_label, _truncate_signal
 from .relevance_ranker import _parse_dt
 
 
@@ -405,27 +406,34 @@ def build_daily_briefing(items: list[dict[str, Any]], analyses: list[dict[str, A
 def _html_table(rows: list[dict[str, str]]) -> str:
     style = "width:100%;table-layout:fixed;border-collapse:collapse;margin:8px auto 18px;"
     cell = "border:1px solid #d0d7de;padding:7px;vertical-align:top;word-break:break-word;overflow-wrap:anywhere;line-height:1.45;"
-    # Narrow the first three meta columns (importance/region/topic) and give the
-    # three content columns (news/signal/assets) a more balanced width so their
-    # row heights even out instead of 关注资产 wrapping into a tall thin column.
-    widths = ["5%", "6%", "8%", "44%", "25%", "12%"]
+    # Email layout: 地区 is stacked above 主题 (5 columns), the summary prose is
+    # dropped from 新闻内容, 核心信号 is truncated and 关注资产 gets one item per line.
+    widths = ["6%", "10%", "46%", "26%", "12%"]
     # Center the short meta columns; keep the long-text columns left-aligned.
-    aligns = ["center", "center", "center", "left", "left", "left"]
+    aligns = ["center", "center", "left", "left", "left"]
     header = "".join(
         f'<th style="{cell}width:{width};background:#f6f8fa;text-align:{align}">{label}</th>'
-        for width, align, label in zip(widths, aligns, ["重要性", "地区", "主题", "新闻内容", "核心信号", "关注资产"])
+        for width, align, label in zip(widths, aligns, ["重要性", "主题", "新闻内容", "核心信号", "关注资产"])
     )
     body: list[str] = []
     for row in rows:
         title = escape(row["title"])
         page_link = f' <a href="{escape(row["url"], quote=True)}" style="color:#57606a;text-decoration:underline">{escape(row["link_label"])}</a>' if row["url"] else ""
         freshness = f'；<span style="color:#999;font-size:11px">🕒 {escape(row["freshness"])}</span>' if row.get("freshness") else ""
-        content = f"<strong>{title}</strong>；{escape(row['detail'])}；<span style=\"color:#57606a\">来源：{escape(row['source'])}</span>{page_link}{freshness}"
-        values = [row["importance"], row["region"], row["topic"], content, row["signal"], row["assets"]]
+        content = f"<strong>{title}</strong>；<span style=\"color:#57606a\">来源：{escape(row['source'])}</span>{page_link}{freshness}"
+        topic = f"{escape(row['region'])}<br>{escape(row['topic'])}" if row["region"] else escape(row["topic"])
+        assets = "<br>".join(escape(asset) for asset in row["assets"].split("、"))
+        values = [
+            escape(_importance_label(row["importance"])),
+            topic,
+            content,
+            escape(_truncate_signal(row["signal"])),
+            assets,
+        ]
         body.append(
             "<tr>"
             + "".join(
-                f'<td style="{cell}text-align:{aligns[index]}">{value if index == 3 else escape(value)}</td>'
+                f'<td style="{cell}text-align:{aligns[index]}">{value}</td>'
                 for index, value in enumerate(values)
             )
             + "</tr>"
