@@ -53,9 +53,17 @@ def _truncate_signal(cell: str, limit: int = 40) -> str:
     return "；".join(out) + "…"
 
 
+def _importance_label(cell: str) -> str:
+    """Map a ★/★★/★★★ rating to 低/中/高; other values pass through."""
+    if cell and set(cell) == {"★"}:
+        return {1: "低", 2: "中"}.get(len(cell), "高")
+    return cell
+
+
 def slim_news_tables(text: str) -> str:
     """Slim the 6-column news tables for email bodies: merge 地区 into 主题
-    (6 cols → 5), drop summary prose from 新闻内容, truncate 核心信号.
+    (6 cols → 5, stacked with <br>), rate 重要性 as 低/中/高, put one 关注资产
+    per line, drop summary prose from 新闻内容, truncate 核心信号.
     Idempotent — slimmed tables no longer match the header pattern."""
     lines = text.split("\n")
     out: list[str] = []
@@ -70,13 +78,13 @@ def slim_news_tables(text: str) -> str:
             while i < len(lines) and lines[i].strip().startswith("|"):
                 row = _split_md_row(lines[i])
                 if len(row) == 6:
-                    topic = f"{row[1]}·{row[2]}" if row[1] else row[2]
+                    topic = f"{row[1]}<br>{row[2]}" if row[1] else row[2]
                     row = [
-                        row[0],
+                        _importance_label(row[0]),
                         topic,
                         _trim_news_cell(row[3]),
                         _truncate_signal(row[4]),
-                        row[5],
+                        row[5].replace("、", "<br>"),
                     ]
                 out.append("| " + " | ".join(row) + " |")
                 i += 1
@@ -218,6 +226,7 @@ def md_to_plain(text: str) -> str:
     """Strip markdown markers for plain text version."""
     text = slim_news_tables(text)
     text = text.replace("\\|", "|")
+    text = text.replace("<br>", " ")
     text = _LINK_RE.sub(r"\1", text)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"\*(.+?)\*", r"\1", text)

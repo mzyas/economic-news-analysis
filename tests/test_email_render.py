@@ -84,8 +84,27 @@ class NewsTableSlimTests(unittest.TestCase):
         html = md_to_html(NEWS_TABLE)
         self.assertNotIn("<th>地区</th>", html)
         self.assertIn("<th>主题</th>", html)
-        self.assertIn("美国·通胀、就业", html)
+        self.assertIn("<td>美国<br>通胀、就业</td>", html)
+        self.assertNotIn("美国·", html)
         self.assertEqual(html.count("<th>"), 5)
+
+    def test_importance_stars_become_text_grade(self):
+        def grade(stars: str) -> str:
+            row = f"| {stars} | 美国 | 通胀 | 标题；来源：X；🕒 今天 | 信号 | 黄金 |"
+            header = "| 重要性 | 地区 | 主题 | 新闻内容 | 核心信号 | 关注资产 |"
+            out = slim_news_tables(f"{header}\n|---|---|---|---|---|---|\n{row}")
+            return out.split("\n")[-1].split("|")[1].strip()
+
+        self.assertEqual(grade("★★★"), "高")
+        self.assertEqual(grade("★★"), "中")
+        self.assertEqual(grade("★"), "低")
+        self.assertEqual(grade("高"), "高")
+        self.assertNotIn("★", md_to_html(NEWS_TABLE))
+
+    def test_assets_split_onto_separate_lines(self):
+        html = md_to_html(NEWS_TABLE)
+        self.assertIn("<td>美国国债<br>美股<br>USD<br>黄金</td>", html)
+        self.assertNotIn("美股、", html)
 
     def test_news_cell_drops_summary_prose(self):
         html = md_to_html(NEWS_TABLE)
@@ -110,7 +129,8 @@ class NewsTableSlimTests(unittest.TestCase):
     def test_plain_text_also_slimmed(self):
         plain = md_to_plain(NEWS_TABLE)
         self.assertNotIn("地区", plain)
-        self.assertIn("美国·通胀、就业", plain)
+        self.assertIn("美国 通胀、就业", plain)
+        self.assertNotIn("<br>", plain)
 
 
 class LinkRenderingTests(unittest.TestCase):
@@ -169,7 +189,7 @@ class PlainTextEscapeAndIndentTests(unittest.TestCase):
         )
         out = slim_news_tables(table)
         self.assertNotIn("地区", out)
-        self.assertIn("美国·通胀", out)
+        self.assertIn("美国<br>通胀", out)
         self.assertNotIn("摘要", out)
 
 
