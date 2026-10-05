@@ -124,5 +124,24 @@ class LinkRenderingTests(unittest.TestCase):
         self.assertIn('<a href="https://e.com/b">发布页</a>', html)
 
 
+class EscapedPipeTests(unittest.TestCase):
+    def test_escaped_pipe_keeps_cell_intact_in_slimmed_table(self):
+        table = (
+            "| 重要性 | 地区 | 主题 | 新闻内容 | 核心信号 | 关注资产 |\n"
+            "|---|---|---|---|---|---|\n"
+            "| ★ | 全球 | 宏观经济 | **独家 \\| 新任AI专员**；来源：X [发布页](https://e.com/c)；🕒 今天 | "
+            "来源不足，未提供核心信号。 | 来源不足 |\n"
+        )
+        html = md_to_html(table)
+        self.assertEqual(html.count("<td>"), 5)
+        self.assertIn("独家 | 新任AI专员", html)
+        self.assertNotIn("\\|", html)
+
+    def test_escaped_pipe_in_generic_table(self):
+        html = md_to_html("| a \\| b | c |\n|---|---|\n| x \\| y | z |")
+        self.assertEqual(html.count("<td>"), 2)
+        self.assertIn("x | y", html)
+
+
 if __name__ == "__main__":
     unittest.main()

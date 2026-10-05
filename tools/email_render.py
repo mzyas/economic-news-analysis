@@ -19,7 +19,8 @@ NEWS_TABLE_HEADER = ["重要性", "地区", "主题", "新闻内容", "核心信
 
 
 def _split_md_row(line: str) -> list[str]:
-    return [c.strip() for c in line.split("|")[1:-1]]
+    """Split a markdown table row on unescaped pipes (``\\|`` stays in-cell)."""
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line)[1:-1]]
 
 
 def _trim_news_cell(cell: str) -> str:
@@ -144,7 +145,7 @@ def md_to_html(text: str) -> str:
                 html_lines.append("<thead>")
                 in_table = True
                 # First row is header
-                cells = [c.strip() for c in line.split("|")[1:-1]]
+                cells = _split_md_row(line)
                 html_lines.append("<tr>" + "".join(f"<th>{inline_format(c)}</th>" for c in cells) + "</tr>")
                 html_lines.append("</thead><tbody>")
                 i += 1
@@ -154,7 +155,7 @@ def md_to_html(text: str) -> str:
                 continue
             else:
                 # Data row
-                cells = [c.strip() for c in line.split("|")[1:-1]]
+                cells = _split_md_row(line)
                 html_lines.append("<tr>" + "".join(f"<td>{inline_format(c)}</td>" for c in cells) + "</tr>")
                 i += 1
                 continue
@@ -189,7 +190,8 @@ def md_to_html(text: str) -> str:
 
 
 def inline_format(text: str) -> str:
-    """Handle inline formatting: links, bold, italic."""
+    """Handle inline formatting: links, bold, italic, escapes."""
+    text = text.replace("\\|", "|")
     text = re.sub(r"\[([^\]]+)\]\(([^\s)]+)\)", r'<a href="\2">\1</a>', text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
