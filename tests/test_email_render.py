@@ -111,5 +111,18 @@ class NewsTableSlimTests(unittest.TestCase):
         self.assertIn("美国·通胀、就业", plain)
 
 
+class LinkRenderingTests(unittest.TestCase):
+    def test_link_becomes_clickable_anchor(self):
+        html = md_to_html("来源：NYT Economy [发布页](https://example.com/a)；🕒 2天前")
+        self.assertIn('<a href="https://example.com/a">发布页</a>', html)
+        self.assertNotIn("[发布页](", html)
+
+    def test_link_anchor_inside_table_cell(self):
+        html = md_to_html(
+            "| 主题 | 新闻 |\n|---|---|\n| x | **标题**；来源：Y [发布页](https://e.com/b)；🕒 今天 |"
+        )
+        self.assertIn('<a href="https://e.com/b">发布页</a>', html)
+
+
 if __name__ == "__main__":
     unittest.main()
