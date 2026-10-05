@@ -6,7 +6,9 @@ from tools.email_render import (
     md_to_html,
     md_to_plain,
     slim_news_tables,
+    _strip_trend_section,
     _trim_news_cell,
+    _truncate_signal,
 )
 
 TREND_ROWS = [
@@ -130,7 +132,8 @@ class NewsTableSlimTests(unittest.TestCase):
     def test_plain_text_also_slimmed(self):
         plain = md_to_plain(NEWS_TABLE)
         self.assertNotIn("地区", plain)
-        self.assertIn("美国 通胀、就业", plain)
+        self.assertIn("美国｜通胀、就业", plain)
+        self.assertIn("美国国债、美股、USD、黄金", plain)
         self.assertNotIn("<br>", plain)
 
 
@@ -211,6 +214,74 @@ class ClauseSplitTests(unittest.TestCase):
         html = md_to_html(out)
         self.assertIn("<strong>美联储维持利率不变；鲍威尔称将保持耐心</strong>", html)
         self.assertNotIn("**", html)
+
+
+class SlimEdgeCaseTests(unittest.TestCase):
+    HEADER = "| 重要性 | 地区 | 主题 | 新闻内容 | 核心信号 | 关注资产 |"
+
+    def _slim(self, row: str, **kw) -> str:
+        return slim_news_tables(f"{self.HEADER}\n|---|---|---|---|---|---|\n{row}", **kw)
+
+    def test_signal_truncation_never_cuts_a_link(self):
+        signal = "看[很长很长很长的信号标题](https://example.com/very/long/path/x)；" + "后续" * 20
+        out = _truncate_signal(signal)
+        self.assertIn("[很长很长很长的信号标题](https://example.com/very/long/path/x)", out)
+        self.assertTrue(out.endswith("…"))
+
+    def test_signal_truncation_keeps_bold_balanced(self):
+        out = _truncate_signal("**" + "长" * 45 + "**；尾巴")
+        self.assertNotIn("**", out)
+        self.assertLessEqual(len(out), 40)
+
+    def test_signal_length_counts_visible_text_only(self):
+        signal = "[短](https://example.com/" + "a" * 60 + ")；二"
+        self.assertEqual(_truncate_signal(signal), signal)
+
+    def test_short_row_is_padded_to_five_columns(self):
+        out = self._slim("| ★★★ | 美国 | 美联储 | 标题 | 信号 |").split("\n")[-1]
+        self.assertEqual(out.count("|"), 6)
+        self.assertTrue(out.startswith("| 高 | 美国<br>美联储 |"))
+
+    def test_long_row_is_folded_to_five_columns(self):
+        out = self._slim("| ★ | 美国 | 美联储 | 标题 | 信号 | 美元 | 多余 |").split("\n")[-1]
+        self.assertEqual(out.count("|"), 6)
+        self.assertTrue(out.endswith("| 美元 多余 |"))
+
+    def test_comma_inside_link_is_not_split_in_assets(self):
+        out = self._slim(
+            "| ★ | 美国 | 宏观 | 标题 | 信号 | [黄金、白银](https://x.com/a、b)、美元 |"
+        ).split("\n")[-1]
+        self.assertIn("[黄金、白银](https://x.com/a、b)<br>美元", out)
+        html = md_to_html(out)
+        self.assertIn('href="https://x.com/a、b"', html)
+
+    def test_plain_text_keeps_asset_separator_and_region_divider(self):
+        plain = md_to_plain(
+            f"{self.HEADER}\n|---|---|---|---|---|---|\n"
+            "| ★★ | 美国 | 货币政策、通胀 | 标题 | 信号 | 美国国债、标普 500、黄金 |"
+        )
+        self.assertIn("美国｜货币政策、通胀", plain)
+        self.assertIn("美国国债、标普 500、黄金", plain)
+
+
+class StripTrendSectionTests(unittest.TestCase):
+    TREND = "## 市场趋势表\n*截至 2026-10-05*\n\n| 资产 | 最新价 |\n|---|---|\n| S&P 500 | 7,722.72 |\n"
+
+    def test_news_table_right_after_trend_table_is_kept(self):
+        text = self.TREND + "\n| 主题 | 新闻 |\n|---|---|\n| 通胀 | 标题 |\n\n正文"
+        out = _strip_trend_section(text)
+        self.assertNotIn("S&P 500", out)
+        self.assertIn("| 通胀 | 标题 |", out)
+        self.assertIn("正文", out)
+
+    def test_italic_note_after_trend_table_is_kept(self):
+        out = _strip_trend_section(self.TREND + "\n*注：数据仅供参考*\n\n正文")
+        self.assertIn("*注：数据仅供参考*", out)
+
+    def test_dangling_separator_is_dropped(self):
+        out = _strip_trend_section(self.TREND + "\n*********************\n\n## 今日资讯主线\n内容")
+        self.assertNotIn("*****", out)
+        self.assertIn("## 今日资讯主线", out)
 
 
 class PlainTextEscapeAndIndentTests(unittest.TestCase):

@@ -67,20 +67,41 @@ def _trim_news_cell(cell: str) -> str:
     return "；".join(kept) if kept else cell
 
 
+def _visible(text: str) -> str:
+    """The text a reader sees: links reduced to labels, ``**`` markers removed."""
+    return _LINK_RE.sub(r"\1", text).replace("**", "")
+
+
+def _sub_outside_links(text: str, old: str, new: str) -> str:
+    """``str.replace`` that leaves ``[label](url)`` spans untouched."""
+    out: list[str] = []
+    pos = 0
+    for m in _LINK_RE.finditer(text):
+        out.append(text[pos:m.start()].replace(old, new))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(text[pos:].replace(old, new))
+    return "".join(out)
+
+
 def _truncate_signal(cell: str, limit: int = 40) -> str:
-    """Trim a 核心信号 cell to <= limit chars, cutting at clause boundaries."""
-    if len(cell) <= limit:
+    """Trim a 核心信号 cell to <= limit visible chars at clause boundaries.
+
+    Length is measured on the visible text and clauses are never cut through
+    ``**bold**`` or ``[label](url)`` markup; when even the first clause is too
+    long the cell falls back to its plain visible text before the hard cut."""
+    if len(_visible(cell)) <= limit:
         return cell
     out: list[str] = []
     total = 0
-    for part in cell.split("；"):
-        add = len(part) + (1 if out else 0)
+    for part in _split_clauses(cell):
+        add = len(_visible(part)) + (1 if out else 0)
         if total + add > limit:
             break
         out.append(part)
         total += add
     if not out:
-        return cell[: limit - 1] + "…"
+        return _visible(cell)[: limit - 1] + "…"
     return "；".join(out) + "…"
 
 
@@ -91,10 +112,13 @@ def _importance_label(cell: str) -> str:
     return cell
 
 
-def slim_news_tables(text: str) -> str:
+def slim_news_tables(text: str, plain: bool = False) -> str:
     """Slim the 6-column news tables for email bodies: merge 地区 into 主题
     (6 cols → 5, stacked with <br>), rate 重要性 as 低/中/高, put one 关注资产
-    per line, drop summary prose from 新闻内容, truncate 核心信号.
+    per line, drop summary prose from 新闻内容, truncate 核心信号. Rows are
+    padded/folded to 6 cells first so a malformed row cannot shift columns.
+    With ``plain=True`` (text/plain part) no <br> is emitted: 地区｜主题 and
+    the 、-separated assets stay on one line.
     Idempotent — slimmed tables no longer match the header pattern."""
     lines = text.split("\n")
     out: list[str] = []
@@ -108,15 +132,19 @@ def slim_news_tables(text: str) -> str:
                 i += 1
             while i < len(lines) and lines[i].strip().startswith("|"):
                 row = _split_md_row(lines[i])
-                if len(row) == 6:
-                    topic = f"{row[1]}<br>{row[2]}" if row[1] else row[2]
-                    row = [
-                        _importance_label(row[0]),
-                        topic,
-                        _trim_news_cell(row[3]),
-                        _truncate_signal(row[4]),
-                        row[5].replace("、", "<br>"),
-                    ]
+                if len(row) < 6:
+                    row += [""] * (6 - len(row))
+                elif len(row) > 6:
+                    row = row[:5] + [" ".join(row[5:])]
+                topic = (f"{row[1]}{'｜' if plain else '<br>'}{row[2]}") if row[1] else row[2]
+                assets = row[5] if plain else _sub_outside_links(row[5], "、", "<br>")
+                row = [
+                    _importance_label(row[0]),
+                    topic,
+                    _trim_news_cell(row[3]),
+                    _truncate_signal(row[4]),
+                    assets,
+                ]
                 out.append("| " + " | ".join(row) + " |")
                 i += 1
             continue
@@ -134,16 +162,24 @@ def _strip_trend_section(text: str) -> str:
     while i < len(lines):
         if re.match(r"^##\s*市场趋势表\s*$", lines[i]):
             i += 1
+            seen_table = False
             while i < len(lines):
                 s = lines[i].strip()
                 italic = (
                     s.startswith("*") and s.endswith("*")
                     and not s.startswith("**") and len(s) > 1
                 )
-                if s == "" or s.startswith("|") or italic:
-                    i += 1
-                    continue
-                break
+                if s.startswith("|"):
+                    seen_table = True
+                elif seen_table or not (s == "" or italic):
+                    break  # first line after the table: leave it for the caller
+                i += 1
+            # Drop the section separator now left dangling under the heading.
+            j = i
+            while j < len(lines) and lines[j].strip() == "":
+                j += 1
+            if j < len(lines) and re.match(r"^\*{10,}$", lines[j].strip()):
+                i = j + 1
             continue
         out.append(lines[i])
         i += 1
@@ -256,7 +292,7 @@ def inline_format(text: str) -> str:
 
 def md_to_plain(text: str) -> str:
     """Strip markdown markers for plain text version."""
-    text = slim_news_tables(text)
+    text = slim_news_tables(text, plain=True)
     text = text.replace("\\|", "|")
     text = text.replace("<br>", " ")
     text = _LINK_RE.sub(r"\1", text)
