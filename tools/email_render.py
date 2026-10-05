@@ -15,8 +15,98 @@ from pathlib import Path
 from collections.abc import Sequence
 
 
+NEWS_TABLE_HEADER = ["重要性", "地区", "主题", "新闻内容", "核心信号", "关注资产"]
+
+
+def _split_md_row(line: str) -> list[str]:
+    return [c.strip() for c in line.split("|")[1:-1]]
+
+
+def _trim_news_cell(cell: str) -> str:
+    """Keep the title, source and timestamp clauses; drop the summary prose."""
+    clauses = cell.split("；")
+    kept = [c for i, c in enumerate(clauses) if i == 0 or "来源：" in c or "🕒" in c]
+    return "；".join(kept) if kept else cell
+
+
+def _truncate_signal(cell: str, limit: int = 40) -> str:
+    """Trim a 核心信号 cell to <= limit chars, cutting at clause boundaries."""
+    if len(cell) <= limit:
+        return cell
+    out: list[str] = []
+    total = 0
+    for part in cell.split("；"):
+        add = len(part) + (1 if out else 0)
+        if total + add > limit:
+            break
+        out.append(part)
+        total += add
+    if not out:
+        return cell[: limit - 1] + "…"
+    return "；".join(out) + "…"
+
+
+def slim_news_tables(text: str) -> str:
+    """Slim the 6-column news tables for email bodies: merge 地区 into 主题
+    (6 cols → 5), drop summary prose from 新闻内容, truncate 核心信号.
+    Idempotent — slimmed tables no longer match the header pattern."""
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith("|") and _split_md_row(line) == NEWS_TABLE_HEADER:
+            out.append("| 重要性 | 主题 | 新闻内容 | 核心信号 | 关注资产 |")
+            i += 1
+            if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i]):
+                i += 1
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                row = _split_md_row(lines[i])
+                if len(row) == 6:
+                    topic = f"{row[1]}·{row[2]}" if row[1] else row[2]
+                    row = [
+                        row[0],
+                        topic,
+                        _trim_news_cell(row[3]),
+                        _truncate_signal(row[4]),
+                        row[5],
+                    ]
+                out.append("| " + " | ".join(row) + " |")
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def _strip_trend_section(text: str) -> str:
+    """Remove the '## 市场趋势表' markdown section (heading + as-of line +
+    table) — build_combined_email_html already renders it as a styled table."""
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if re.match(r"^##\s*市场趋势表\s*$", lines[i]):
+            i += 1
+            while i < len(lines):
+                s = lines[i].strip()
+                italic = (
+                    s.startswith("*") and s.endswith("*")
+                    and not s.startswith("**") and len(s) > 1
+                )
+                if s == "" or s.startswith("|") or italic:
+                    i += 1
+                    continue
+                break
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
 def md_to_html(text: str) -> str:
     """Minimal markdown → HTML converter for briefing format."""
+    text = slim_news_tables(text)
     lines = text.split("\n")
     html_lines = []
     in_table = False
@@ -107,6 +197,7 @@ def inline_format(text: str) -> str:
 
 def md_to_plain(text: str) -> str:
     """Strip markdown markers for plain text version."""
+    text = slim_news_tables(text)
     text = re.sub(r"\[([^\]]+)\]\([^\s)]+\)", r"\1", text)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"\*(.+?)\*", r"\1", text)
@@ -188,8 +279,11 @@ def build_combined_email_html(
     if has_news_items:
         body_content = briefing_html or ""
         if not body_content and briefing_markdown:
-            body_content = md_to_html(briefing_markdown)
-        briefing_html_section = f"""
+            stripped = _strip_trend_section(briefing_markdown)
+            if stripped.strip():
+                body_content = md_to_html(stripped)
+        if body_content.strip():
+            briefing_html_section = f"""
 <hr style="border:none;border-top:1px solid #e9ecef;margin:16px 0;">
 <h2 style="margin:0 0 12px;font-size:15px;font-weight:600;color:#333;border-left:3px solid #3498db;padding-left:10px;">📰 今日重点新闻</h2>
 {body_content}"""
