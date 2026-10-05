@@ -9,14 +9,186 @@ Usage:
 """
 
 import argparse
+import html
 import re
 import sys
 from pathlib import Path
 from collections.abc import Sequence
 
 
+NEWS_TABLE_HEADER = ["重要性", "地区", "主题", "新闻内容", "核心信号", "关注资产"]
+
+
+# Link target allows one level of balanced parentheses, e.g. wiki/Foo_(bar).
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(((?:[^\s()]|\([^\s()]*\))+)\)")
+_SAFE_URL_RE = re.compile(r"^(?:https?://|mailto:)", re.IGNORECASE)
+
+
+def _split_md_row(line: str) -> list[str]:
+    """Split a markdown table row on unescaped pipes (``\\|`` stays in-cell)."""
+    return [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+
+
+def _split_clauses(text: str) -> list[str]:
+    """Split on ``；`` outside ``**bold**`` spans and ``[label](url)`` links."""
+    parts: list[str] = []
+    buf: list[str] = []
+    bold = False
+    depth = 0
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if text.startswith("**", i):
+            bold = not bold
+            buf.append("**")
+            i += 2
+            continue
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth = max(depth - 1, 0)
+        if ch == "；" and not bold and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
+def _trim_news_cell(cell: str) -> str:
+    """Keep the title, source and timestamp clauses; drop the summary prose."""
+    clauses = _split_clauses(cell)
+    kept = [
+        c for i, c in enumerate(clauses)
+        if i == 0 or c.lstrip().startswith("来源：") or "🕒" in c
+    ]
+    return "；".join(kept) if kept else cell
+
+
+def _visible(text: str) -> str:
+    """The text a reader sees: links reduced to labels, ``**`` markers removed."""
+    return _LINK_RE.sub(r"\1", text).replace("**", "")
+
+
+def _sub_outside_links(text: str, old: str, new: str) -> str:
+    """``str.replace`` that leaves ``[label](url)`` spans untouched."""
+    out: list[str] = []
+    pos = 0
+    for m in _LINK_RE.finditer(text):
+        out.append(text[pos:m.start()].replace(old, new))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append(text[pos:].replace(old, new))
+    return "".join(out)
+
+
+def _truncate_signal(cell: str, limit: int = 40) -> str:
+    """Trim a 核心信号 cell to <= limit visible chars at clause boundaries.
+
+    Length is measured on the visible text and clauses are never cut through
+    ``**bold**`` or ``[label](url)`` markup; when even the first clause is too
+    long the cell falls back to its plain visible text before the hard cut."""
+    if len(_visible(cell)) <= limit:
+        return cell
+    out: list[str] = []
+    total = 0
+    for part in _split_clauses(cell):
+        add = len(_visible(part)) + (1 if out else 0)
+        if total + add > limit:
+            break
+        out.append(part)
+        total += add
+    if not out:
+        return _visible(cell)[: limit - 1] + "…"
+    return "；".join(out) + "…"
+
+
+def _importance_label(cell: str) -> str:
+    """Map a ★/★★/★★★ rating to 低/中/高; other values pass through."""
+    if cell and set(cell) == {"★"}:
+        return {1: "低", 2: "中"}.get(len(cell), "高")
+    return cell
+
+
+def slim_news_tables(text: str, plain: bool = False) -> str:
+    """Slim the 6-column news tables for email bodies: merge 地区 into 主题
+    (6 cols → 5, stacked with <br>), rate 重要性 as 低/中/高, put one 关注资产
+    per line, drop summary prose from 新闻内容, truncate 核心信号. Rows are
+    padded/folded to 6 cells first so a malformed row cannot shift columns.
+    With ``plain=True`` (text/plain part) no <br> is emitted: 地区｜主题 and
+    the 、-separated assets stay on one line.
+    Idempotent — slimmed tables no longer match the header pattern."""
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith("|") and _split_md_row(line) == NEWS_TABLE_HEADER:
+            out.append("| 重要性 | 主题 | 新闻内容 | 核心信号 | 关注资产 |")
+            i += 1
+            if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
+                i += 1
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                row = _split_md_row(lines[i])
+                if len(row) < 6:
+                    row += [""] * (6 - len(row))
+                elif len(row) > 6:
+                    row = row[:5] + [" ".join(row[5:])]
+                topic = (f"{row[1]}{'｜' if plain else '<br>'}{row[2]}") if row[1] else row[2]
+                assets = row[5] if plain else _sub_outside_links(row[5], "、", "<br>")
+                row = [
+                    _importance_label(row[0]),
+                    topic,
+                    _trim_news_cell(row[3]),
+                    _truncate_signal(row[4]),
+                    assets,
+                ]
+                out.append("| " + " | ".join(row) + " |")
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
+
+def _strip_trend_section(text: str) -> str:
+    """Remove the '## 市场趋势表' markdown section (heading + as-of line +
+    table) — build_combined_email_html already renders it as a styled table."""
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if re.match(r"^##\s*市场趋势表\s*$", lines[i]):
+            i += 1
+            seen_table = False
+            while i < len(lines):
+                s = lines[i].strip()
+                italic = (
+                    s.startswith("*") and s.endswith("*")
+                    and not s.startswith("**") and len(s) > 1
+                )
+                if s.startswith("|"):
+                    seen_table = True
+                elif seen_table or not (s == "" or italic):
+                    break  # first line after the table: leave it for the caller
+                i += 1
+            # Drop the section separator now left dangling under the heading.
+            j = i
+            while j < len(lines) and lines[j].strip() == "":
+                j += 1
+            if j < len(lines) and re.match(r"^\*{10,}$", lines[j].strip()):
+                i = j + 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
 def md_to_html(text: str) -> str:
     """Minimal markdown → HTML converter for briefing format."""
+    text = slim_news_tables(text)
     lines = text.split("\n")
     html_lines = []
     in_table = False
@@ -54,17 +226,17 @@ def md_to_html(text: str) -> str:
                 html_lines.append("<thead>")
                 in_table = True
                 # First row is header
-                cells = [c.strip() for c in line.split("|")[1:-1]]
+                cells = _split_md_row(line)
                 html_lines.append("<tr>" + "".join(f"<th>{inline_format(c)}</th>" for c in cells) + "</tr>")
                 html_lines.append("</thead><tbody>")
                 i += 1
                 # Skip separator row (|---|---|)
-                if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i]):
+                if i < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i].strip()):
                     i += 1
                 continue
             else:
                 # Data row
-                cells = [c.strip() for c in line.split("|")[1:-1]]
+                cells = _split_md_row(line)
                 html_lines.append("<tr>" + "".join(f"<td>{inline_format(c)}</td>" for c in cells) + "</tr>")
                 i += 1
                 continue
@@ -99,15 +271,31 @@ def md_to_html(text: str) -> str:
 
 
 def inline_format(text: str) -> str:
-    """Handle inline formatting: bold, italic."""
+    """Handle inline formatting: links, bold, italic, escapes."""
+    # NUL delimits the link placeholders below, so it must not occur in the input.
+    text = text.replace("\x00", "").replace("\\|", "|")
+    anchors: list[str] = []
+
+    def _stash_link(m: re.Match) -> str:
+        label, url = m.group(1), m.group(2)
+        if not _SAFE_URL_RE.match(url):
+            return label
+        anchors.append(f'<a href="{html.escape(url, quote=True)}">{label}</a>')
+        return f"\x00{len(anchors) - 1}\x00"
+
+    # Anchors are stashed so bold/italic regexes cannot rewrite the URL.
+    text = _LINK_RE.sub(_stash_link, text)
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda m: anchors[int(m.group(1))], text)
 
 
 def md_to_plain(text: str) -> str:
     """Strip markdown markers for plain text version."""
-    text = re.sub(r"\[([^\]]+)\]\([^\s)]+\)", r"\1", text)
+    text = slim_news_tables(text, plain=True)
+    text = text.replace("\\|", "|")
+    text = text.replace("<br>", " ")
+    text = _LINK_RE.sub(r"\1", text)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
     text = re.sub(r"\*(.+?)\*", r"\1", text)
     text = re.sub(r"^#{1,3}\s+", "", text, flags=re.MULTILINE)
@@ -188,8 +376,11 @@ def build_combined_email_html(
     if has_news_items:
         body_content = briefing_html or ""
         if not body_content and briefing_markdown:
-            body_content = md_to_html(briefing_markdown)
-        briefing_html_section = f"""
+            stripped = _strip_trend_section(briefing_markdown)
+            if stripped.strip():
+                body_content = md_to_html(stripped)
+        if body_content.strip():
+            briefing_html_section = f"""
 <hr style="border:none;border-top:1px solid #e9ecef;margin:16px 0;">
 <h2 style="margin:0 0 12px;font-size:15px;font-weight:600;color:#333;border-left:3px solid #3498db;padding-left:10px;">📰 今日重点新闻</h2>
 {body_content}"""
