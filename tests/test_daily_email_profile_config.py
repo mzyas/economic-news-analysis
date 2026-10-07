@@ -138,6 +138,116 @@ class DailyEmailProfileConfigTests(TestCase):
             },
         )
 
+    def _data_dir(self, home: Path) -> Path:
+        return home / "plugin-data" / "economic-news-analysis"
+
+    def test_relative_output_dir_is_anchored_to_profile_data_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            config = {"output_dir": "output/daily-email-output/"}
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}):
+                hermes_plugin.anchor_profile_paths(config)
+
+        self.assertEqual(
+            Path(config["output_dir"]),
+            self._data_dir(home) / "output" / "daily-email-output",
+        )
+
+    def test_log_path_inside_plugin_root_is_rehomed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            config = {"log_path": str(root / "logs" / "daily-workflow.jsonl")}
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                hermes_plugin.anchor_profile_paths(config)
+
+        self.assertEqual(
+            Path(config["log_path"]),
+            self._data_dir(home) / "logs" / "daily-workflow.jsonl",
+        )
+
+    def test_legacy_log_is_copied_once_when_target_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            legacy = root / "logs" / "daily-workflow.jsonl"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text('{"run_id": "old"}\n', encoding="utf-8")
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            target = self._data_dir(home) / "logs" / "daily-workflow.jsonl"
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                hermes_plugin.anchor_profile_paths({"log_path": str(legacy)})
+                self.assertEqual(target.read_text(encoding="utf-8"), '{"run_id": "old"}\n')
+
+                target.write_text('{"run_id": "new"}\n', encoding="utf-8")
+                legacy.write_text('{"run_id": "older"}\n', encoding="utf-8")
+                hermes_plugin.anchor_profile_paths({"log_path": str(legacy)})
+
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"run_id": "new"}\n')
+            self.assertTrue(legacy.is_file())
+
+    def test_absolute_outside_root_or_missing_values_are_left_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            elsewhere = str(Path(temp_dir) / "elsewhere")
+            config = {"output_dir": elsewhere, "log_path": elsewhere + ".jsonl"}
+            missing: dict = {"output_dir": None}
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                hermes_plugin.anchor_profile_paths(config)
+                hermes_plugin.anchor_profile_paths(missing)
+
+        self.assertEqual(config, {"output_dir": elsewhere, "log_path": elsewhere + ".jsonl"})
+        self.assertIsNone(missing["output_dir"])
+
+    def test_paths_unchanged_without_hermes(self) -> None:
+        config = {"output_dir": "output/daily-email-output/", "log_path": "logs/x.jsonl"}
+        with patch.dict(sys.modules, {"hermes_constants": None}):
+            hermes_plugin.anchor_profile_paths(config)
+
+        self.assertEqual(
+            config, {"output_dir": "output/daily-email-output/", "log_path": "logs/x.jsonl"}
+        )
+
+    def test_daily_profile_run_anchors_output_dir_and_log_path(self) -> None:
+        ctx = SimpleNamespace(
+            llm=SimpleNamespace(),
+            get_config=lambda _name, default=None: default,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin,
+                "load_runtime_config",
+                return_value={
+                    "output_dir": "output/daily-email-output/",
+                    "log_path": str(hermes_plugin.ROOT / "logs" / "daily-workflow.jsonl"),
+                },
+            ), patch.object(
+                hermes_plugin, "run_workflow", return_value={"status": "success"}
+            ) as workflow:
+                hermes_plugin.run_langgraph_workflow(
+                    ctx, "", run_mode="deliver", profile_config="daily_email"
+                )
+
+        sent = workflow.call_args.args[0]
+        self.assertEqual(
+            Path(sent["output_dir"]), self._data_dir(home) / "output" / "daily-email-output"
+        )
+        self.assertEqual(
+            Path(sent["log_path"]), self._data_dir(home) / "logs" / "daily-workflow.jsonl"
+        )
+
     def test_root_template_is_safe_to_track(self) -> None:
         config = load_runtime_config(ROOT / "daily_email_briefing.yaml")
 
