@@ -780,9 +780,12 @@ cron 运行时，Hermes 会：
 邮件主题由 `deliver_email_node` 自动生成，无需在配置中手动设置：
 
 ```
-财经消息 日报 2026/06/24
+📊 财经消息 日报 2026-06-24
 ```
 
+- 日期格式 `YYYY-MM-DD`，主题带 📊 前缀（`tools/graph/nodes.py`，`deliver_email_node`）
+- 投递失败通知的主题为 `[失败通知] 财经消息日报 YYYY-MM-DD`（无图标）
+- `email_render.py` 的 `build_mml` 只把传入的主题原样写入 `Subject:` 头，不负责生成主题
 - 时间基于 **JST（日本标准时间，UTC+9）**
 - 日报/周报/月报占位已预留，当前固定为日报
 - 覆盖 `email.subject` 配置项
