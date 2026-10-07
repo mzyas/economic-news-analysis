@@ -49,20 +49,26 @@ def _profile_data_dir() -> Path | None:
     return get_hermes_home() / "plugin-data" / _PLUGIN_NAME
 
 
-def _anchored(value: Any, base: Path) -> Path | None:
+def _anchored(key: str, value: Any, base: Path) -> Path | None:
     """``value`` re-homed under ``base``, or ``None`` to leave it alone.
 
     A relative path moves as is. ``config_loader`` already resolves ``log_path`` against
     the plugin root, so an absolute path inside the root is re-homed by its relative part.
-    An absolute path anywhere else was chosen explicitly and is kept.
+    An absolute path anywhere else was chosen explicitly and is kept. A re-homed path
+    must stay inside ``base``: ``..`` segments or symlinks that escape are rejected.
     """
     path = Path(str(value))
-    if not path.is_absolute():
-        return base / path
-    try:
-        return base / path.relative_to(ROOT)
-    except ValueError:
-        return None
+    if path.is_absolute():
+        try:
+            path = path.relative_to(ROOT)
+        except ValueError:
+            return None
+    candidate = base / path
+    if not candidate.resolve().is_relative_to(base.resolve()):
+        raise ValueError(
+            f"{key} must remain inside the profile data directory ({base})"
+        )
+    return candidate
 
 
 def _migrate_legacy_log(legacy: Path, target: Path) -> None:
@@ -93,7 +99,7 @@ def anchor_profile_paths(runtime_config: dict[str, Any]) -> None:
         value = runtime_config.get(key)
         if not value:
             continue
-        anchored = _anchored(value, base)
+        anchored = _anchored(key, value, base)
         if anchored is None:
             continue
         if key == "log_path":
