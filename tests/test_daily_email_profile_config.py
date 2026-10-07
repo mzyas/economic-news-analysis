@@ -209,6 +209,24 @@ class DailyEmailProfileConfigTests(TestCase):
         self.assertEqual(config, {"output_dir": elsewhere, "log_path": elsewhere + ".jsonl"})
         self.assertIsNone(missing["output_dir"])
 
+    def test_paths_escaping_the_profile_data_dir_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            cases = (
+                {"output_dir": "../shared"},
+                {"output_dir": "output/../../../shared"},
+                {"log_path": str(root / ".." / "shared" / "daily-workflow.jsonl")},
+            )
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                for config in cases:
+                    with self.subTest(config=config):
+                        with self.assertRaisesRegex(ValueError, "must remain inside"):
+                            hermes_plugin.anchor_profile_paths(dict(config))
+
     def test_paths_unchanged_without_hermes(self) -> None:
         config = {"output_dir": "output/daily-email-output/", "log_path": "logs/x.jsonl"}
         with patch.dict(sys.modules, {"hermes_constants": None}):
