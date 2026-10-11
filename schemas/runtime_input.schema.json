@@ -62,6 +62,10 @@
         "enabled": { "type": "boolean" },
         "provider": { "type": "string" },
         "source_config": { "type": "string" },
+        "watchlist_config": {
+          "type": ["string", "null"],
+          "description": "Stock watchlist YAML (news-trigger stocks, hidden from the trend table). null or empty disables it."
+        },
         "period": { "type": "string" },
         "interval": { "type": "string" }
       }

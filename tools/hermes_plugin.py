@@ -84,17 +84,43 @@ def _migrate_legacy_log(legacy: Path, target: Path) -> None:
     logger.info("migrated run log %s to %s", legacy, target)
 
 
+def _user_watchlist(bundled: Path, base: Path) -> Path | None:
+    """The user's editable copy of the bundled stock watchlist, seeded on first use."""
+    target = base / bundled.name
+    if target.is_file():
+        return target
+    if not bundled.is_file():
+        return None
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundled, target)
+    except OSError as exc:
+        logger.warning("could not seed stock watchlist %s to %s: %s", bundled, target, exc)
+        return None
+    logger.info("seeded editable stock watchlist at %s", target)
+    return target
+
+
 def anchor_profile_paths(runtime_config: dict[str, Any]) -> None:
-    """Keep ``output_dir`` and ``log_path`` in the profile data directory.
+    """Keep ``output_dir``, ``log_path`` and the stock watchlist in the profile data directory.
 
     A relative ``output_dir`` otherwise follows the process working directory, which
     differs between the restart-safe cron worker and other launch paths, and a
     ``log_path`` under the plugin directory is lost when the plugin is reinstalled.
+    The bundled stock watchlist is copied there once so users can edit it after
+    installing; an explicit path outside the plugin root is kept.
     Runs outside Hermes keep their existing behaviour.
     """
     base = _profile_data_dir()
     if base is None:
         return
+    market_data = runtime_config.get("market_data")
+    watchlist = market_data.get("watchlist_config") if isinstance(market_data, dict) else None
+    bundled = ROOT / str(watchlist) if watchlist else None
+    if bundled is not None and bundled.resolve().is_relative_to(ROOT.resolve()):
+        user_copy = _user_watchlist(bundled, base)
+        if user_copy is not None:
+            market_data["watchlist_config"] = str(user_copy)
     for key in ("output_dir", "log_path"):
         value = runtime_config.get(key)
         if not value:

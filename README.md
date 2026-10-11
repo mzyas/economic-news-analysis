@@ -137,10 +137,19 @@ offline smoke on every push.
 
 ## Market-mover news (`movers` block)
 
-Symbols in `sources/market_sources.yaml` whose 1-day or 1-week move crosses a threshold get a
-targeted Google News search, shown in the 📉 异动解读 section. Individual stocks
-(`asset_class: equity_stock`) only trigger searches and are hidden from the trend table;
-add or remove tickers there. All keys are optional:
+Market symbols whose 1-day or 1-week move crosses a threshold get a targeted Google News
+search, shown in the 📉 异动解读 section. Individual stocks only trigger searches and are hidden
+from the trend table; they live in their own file, `sources/stock_watchlist.yaml`
+(`market_data.watchlist_config`; set it to `null` to turn the stocks off).
+
+**Editing the stock list after installing the plugin.** Under Hermes the bundled watchlist is
+copied once to `<HERMES_HOME>/plugin-data/economic-news-analysis/stock_watchlist.yaml`, and the
+daily email profile reads that copy, so edits there survive reinstalls and upgrades. Each stock
+needs `id`, `ticker` (Yahoo Finance), `name` (used in the news query) and `region`; `name_zh` and
+`currency` are optional. Delete the copy to restore the default list on the next run. A broken
+watchlist is reported as a `WatchlistConfigError` and does not stop the trend table.
+
+The `movers` keys are all optional:
 
 - `enabled` (default `true`), `day_threshold_pct` (4), `week_threshold_pct` (8).
 - `max_symbols` (5) and `items_per_symbol` (3) bound the number of searches and headlines.

@@ -86,6 +86,23 @@ def load_market_sources(path: str | Path) -> dict[str, Any]:
     return data
 
 
+_WATCHLIST_DEFAULTS = {
+    "asset_class": "equity_stock",
+    "asset_type": "price",
+    "display_precision": 2,
+}
+
+
+def load_stock_watchlist(path: str | Path) -> list[dict[str, Any]]:
+    """Return the watchlist symbols, with the per-stock defaults filled in."""
+    source_path = Path(path)
+    if not source_path.is_absolute():
+        source_path = ROOT / source_path
+    data = _load_mapping(source_path)
+    validate_file(data, ROOT / "schemas" / "stock_watchlist.schema.json")
+    return [{**_WATCHLIST_DEFAULTS, **item} for item in data.get("symbols") or []]
+
+
 def _market_symbol_from_mapping(item: dict[str, Any]) -> MarketSymbol:
     return MarketSymbol(
         id=str(item["id"]),
@@ -115,6 +132,7 @@ def build_market_context(config: dict[str, Any]) -> dict[str, Any]:
         return skipped_market_context(config)
 
     provider_name = str(market_data.get("provider") or "")
+    watchlist_errors: list[dict[str, Any]] = []
     try:
         data = load_market_sources(str(market_data["source_config"]))
         defaults = data.get("defaults", {})
@@ -125,6 +143,19 @@ def build_market_context(config: dict[str, Any]) -> dict[str, Any]:
             _market_symbol_from_mapping(item)
             for item in data.get("symbols", [])
         ]
+        # A broken watchlist must not take the trend table down with it.
+        watchlist_path = market_data.get("watchlist_config")
+        if watchlist_path:
+            try:
+                known = {symbol.id for symbol in symbols}
+                for item in load_stock_watchlist(str(watchlist_path)):
+                    if item["id"] not in known:
+                        known.add(item["id"])
+                        symbols.append(_market_symbol_from_mapping(item))
+            except Exception as exc:
+                watchlist_errors.append(
+                    {"type": "WatchlistConfigError", "message": f"{watchlist_path}: {exc}"}
+                )
         provider = get_market_data_provider(provider_name)
         snapshots = provider.fetch_snapshots(symbols, period, interval)
     except Exception as exc:
@@ -146,7 +177,7 @@ def build_market_context(config: dict[str, Any]) -> dict[str, Any]:
         provider=provider_name,
         status=status,
         snapshots=snapshots,
-        errors=[
+        errors=watchlist_errors + [
             {
                 "symbol_id": snapshot.symbol_id,
                 "type": "MarketDataSnapshotError",
