@@ -390,7 +390,8 @@ fetch_market_data → trend_table → fetch_feeds → movers_news → google_new
 - **检索**：每个命中标的构造 `"<name>" stock when:2d` 的 Google News RSS 查询，取 `items_per_symbol`（默认 3）条；来源 id 为 `google_news_mover_<symbol_id>`，类别 `market_mover`，因此照常经 `google_news_resolve` 解析发布页。
 - **标注**：每条新闻带 `mover.trigger`（如 `NVIDIA 日 -6.2% / 周 -9.1%`），渲染时写入表格「主题」列。
 - **板块**：`_item_category` 返回 `movers`，`rank_items_node` 给独立配额 `movers_max_items`，排在其它板块之后；不会混入官方/Google 板块。
-- **个股只触发、不入表**：`market_sources.yaml` 中 `asset_class: equity_stock` 的标的由 `trend_table_node` 过滤，趋势表仍是原来的 16 个资产。
+- **个股只触发、不入表**：个股放在独立的 `sources/stock_watchlist.yaml`（`market_data.watchlist_config`），由 `load_stock_watchlist` 补默认值（`asset_class: equity_stock`、`asset_type: price`、`display_precision: 2`）后追加到 `market_sources.yaml` 的标的之后（id 重复的跳过）；`trend_table_node` 过滤 `equity_stock`，趋势表仍是原来的 16 个资产。watchlist 读取或校验失败只记 `WatchlistConfigError`，不影响核心行情。
+- **插件安装后可改**：Hermes 下 `anchor_profile_paths` 首次运行时把内置 watchlist 复制到 `<HERMES_HOME>/plugin-data/economic-news-analysis/stock_watchlist.yaml` 并改读该副本；已存在的副本不会被覆盖，重装插件也不丢；指向插件目录之外的显式路径保持不变。
 - **降级**：单个查询失败只记入 `errors`（`MoverFetchError`）；节点异常记 `MoverError`，均不中断主流程。`trend` 模式、`fetch_enabled=false`、`movers.enabled=false` 时整体跳过。
 - **限制**：只能抓当前行情窗口内的异动，无法回填历史某天的大跌。
 
@@ -480,6 +481,8 @@ v0.7.0 从 4 个资产扩展至 12 个资产，涵盖 6 个类别：
 | 加密货币 | Bitcoin | BTC-USD |
 
 每个 symbol 声明 `asset_type` 和 `display_precision`，provider 将其透传到 `MarketSnapshot`。单资产失败不影响其他资产的数据获取。
+
+个股不在此文件，而在 `sources/stock_watchlist.yaml`（schema：`schemas/stock_watchlist.schema.json`），见 5b.4。
 
 ### 8.5 图集成
 
