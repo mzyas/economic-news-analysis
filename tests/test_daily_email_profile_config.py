@@ -227,6 +227,51 @@ class DailyEmailProfileConfigTests(TestCase):
                         with self.assertRaisesRegex(ValueError, "must remain inside"):
                             hermes_plugin.anchor_profile_paths(dict(config))
 
+    def test_bundled_watchlist_is_seeded_once_and_user_edits_are_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            bundled = root / "sources" / "stock_watchlist.yaml"
+            bundled.parent.mkdir(parents=True)
+            bundled.write_text("symbols: []\n", encoding="utf-8")
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            target = self._data_dir(home) / "stock_watchlist.yaml"
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                config = {"market_data": {"watchlist_config": str(bundled)}}
+                hermes_plugin.anchor_profile_paths(config)
+                self.assertEqual(Path(config["market_data"]["watchlist_config"]), target)
+                self.assertEqual(target.read_text(encoding="utf-8"), "symbols: []\n")
+
+                target.write_text("symbols: null\n", encoding="utf-8")
+                bundled.write_text("symbols: [] # upgraded\n", encoding="utf-8")
+                config = {"market_data": {"watchlist_config": "sources/stock_watchlist.yaml"}}
+                hermes_plugin.anchor_profile_paths(config)
+
+            self.assertEqual(Path(config["market_data"]["watchlist_config"]), target)
+            self.assertEqual(target.read_text(encoding="utf-8"), "symbols: null\n")
+
+    def test_explicit_or_disabled_watchlist_is_left_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir) / "home"
+            root = Path(temp_dir) / "plugin"
+            fake_constants = SimpleNamespace(get_hermes_home=lambda: home)
+            elsewhere = str(Path(temp_dir) / "my_watchlist.yaml")
+            configs = (
+                {"market_data": {"watchlist_config": elsewhere}},
+                {"market_data": {"watchlist_config": None}},
+                {"market_data": {"watchlist_config": str(root / "sources" / "missing.yaml")}},
+            )
+            with patch.dict(sys.modules, {"hermes_constants": fake_constants}), patch.object(
+                hermes_plugin, "ROOT", root
+            ):
+                for config in configs:
+                    expected = json.loads(json.dumps(config))
+                    hermes_plugin.anchor_profile_paths(config)
+                    self.assertEqual(config, expected)
+            self.assertFalse(self._data_dir(home).exists())
+
     def test_paths_unchanged_without_hermes(self) -> None:
         config = {"output_dir": "output/daily-email-output/", "log_path": "logs/x.jsonl"}
         with patch.dict(sys.modules, {"hermes_constants": None}):

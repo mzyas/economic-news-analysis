@@ -6,7 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tools.config_loader import ROOT, load_runtime_config
-from tools.market_data.loader import build_market_context, load_market_sources
+from tools.market_data.loader import (
+    build_market_context,
+    load_market_sources,
+    load_stock_watchlist,
+)
 from tools.market_data.models import MarketSnapshot
 from tools.market_data.providers.yfinance_provider import YFinanceProvider
 from tools.market_data.registry import (
@@ -45,6 +49,83 @@ class MarketDataTests(unittest.TestCase):
         validate_file(data, ROOT / "schemas" / "market_sources.schema.json")
         self.assertEqual(data["provider"], "yfinance")
         self.assertGreaterEqual(len(data["symbols"]), 4)
+
+    def test_stocks_live_only_in_the_watchlist(self):
+        core = load_market_sources(ROOT / "sources" / "market_sources.yaml")["symbols"]
+        stocks = load_stock_watchlist(ROOT / "sources" / "stock_watchlist.yaml")
+        self.assertNotIn("equity_stock", {item["asset_class"] for item in core})
+        self.assertEqual(len(stocks), 25)
+        self.assertEqual(
+            {(s["asset_class"], s["asset_type"], s["display_precision"]) for s in stocks},
+            {("equity_stock", "price", 2)},
+        )
+        self.assertFalse({s["id"] for s in stocks} & {s["id"] for s in core})
+
+    def _market_context(self, watchlist_config):
+        recorded = []
+
+        class RecordingProvider:
+            name = "recording"
+
+            def fetch_snapshots(self, symbols, period, interval):
+                recorded.extend(symbols)
+                return [
+                    MarketSnapshot(
+                        symbol_id=s.id, ticker=s.ticker, name=s.name,
+                        asset_class=s.asset_class, region=s.region, last_price=1.0,
+                        change_pct=0.0, period=period, interval=interval, as_of=None,
+                        provider=self.name, status="success",
+                    )
+                    for s in symbols
+                ]
+
+        register_market_data_provider("recording", RecordingProvider)
+        config = {
+            "market_data": {
+                "enabled": True,
+                "provider": "recording",
+                "source_config": "sources/market_sources.yaml",
+                "watchlist_config": watchlist_config,
+            }
+        }
+        return build_market_context(config), recorded
+
+    def test_watchlist_symbols_are_appended_and_deduplicated(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            watchlist = Path(temp_dir) / "stock_watchlist.yaml"
+            watchlist.write_text(
+                "symbols:\n"
+                "  - id: sp500\n    ticker: DUP\n    name: Duplicate\n    region: US\n"
+                "  - id: sony\n    ticker: 6758.T\n    name: Sony Group\n    region: JP\n",
+                encoding="utf-8",
+            )
+            context, symbols = self._market_context(str(watchlist))
+        self.assertEqual(context["status"], "success")
+        by_id = {s.id: s for s in symbols}
+        self.assertEqual(by_id["sp500"].ticker, "^GSPC")
+        self.assertEqual(by_id["sony"].asset_class, "equity_stock")
+        self.assertEqual(symbols[-1].id, "sony")
+
+    def test_broken_or_disabled_watchlist_keeps_core_symbols(self):
+        core = len(load_market_sources(ROOT / "sources" / "market_sources.yaml")["symbols"])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            broken = Path(temp_dir) / "stock_watchlist.yaml"
+            broken.write_text("symbols:\n  - id: x\n    ticker: X\n", encoding="utf-8")
+            for watchlist in (str(broken), str(Path(temp_dir) / "missing.yaml")):
+                with self.subTest(watchlist=watchlist):
+                    context, symbols = self._market_context(watchlist)
+                    self.assertEqual(context["status"], "success")
+                    self.assertEqual(len(symbols), core)
+                    self.assertEqual(context["errors"][0]["type"], "WatchlistConfigError")
+        context, symbols = self._market_context(None)
+        self.assertEqual((len(symbols), context["errors"]), (core, []))
+
+    def test_runtime_config_defaults_to_bundled_watchlist(self):
+        config = load_runtime_config(ROOT / "examples" / "daily_trend.yaml")
+        self.assertEqual(
+            Path(config["market_data"]["watchlist_config"]),
+            ROOT / "sources" / "stock_watchlist.yaml",
+        )
 
     def test_registry_returns_registered_provider(self):
         register_market_data_provider("fake", FakeProvider)

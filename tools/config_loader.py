@@ -188,6 +188,7 @@ def load_runtime_config(
             "enabled": False,
             "provider": "yfinance",
             "source_config": "sources/market_sources.yaml",
+            "watchlist_config": "sources/stock_watchlist.yaml",
             "period": "5d",
             "interval": "1d",
         },
@@ -202,6 +203,9 @@ def load_runtime_config(
     config["source_config"] = _resolve_path(str(config["source_config"]))
     config["market_data"]["source_config"] = _resolve_path(
         str(config["market_data"]["source_config"])
+    )
+    config["market_data"]["watchlist_config"] = _resolve_path(
+        config["market_data"].get("watchlist_config")
     )
     validate_file(config, ROOT / "schemas" / "runtime_input.schema.json")
     # Version is sourced from pyproject.toml (single source of truth) via
