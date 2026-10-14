@@ -8,6 +8,7 @@ from tools.evidence_fetcher import (
     batch_fetch,
     MAX_RESPONSE_SIZE,
     MAX_TEXT_LENGTH,
+    READ_CHUNK_SIZE,
 )
 
 
@@ -24,10 +25,10 @@ class FetchEvidenceTests(unittest.TestCase):
     def test_http_200_returns_extracted_text(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = (
+        mock_response.iter_content.return_value = [(
             b"<html><head><title>News</title></head>"
             b"<body><article>Federal Reserve raised rates by 25bps.</article></body></html>"
-        )
+        )]
         mock_response.apparent_encoding = "utf-8"
         mock_get.return_value = mock_response
 
@@ -41,7 +42,7 @@ class FetchEvidenceTests(unittest.TestCase):
     def test_http_404_returns_structured_error(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 404
-        mock_response.content = b""
+        mock_response.iter_content.return_value = [b""]
         mock_get.return_value = mock_response
 
         result = fetch_evidence("https://example.com/missing")
@@ -80,7 +81,7 @@ class FetchEvidenceTests(unittest.TestCase):
     def test_empty_body_returns_structured_error(self, mock_get):
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = b"<html><body></body></html>"
+        mock_response.iter_content.return_value = [b"<html><body></body></html>"]
         mock_get.return_value = mock_response
 
         result = fetch_evidence("https://example.com/empty")
@@ -95,7 +96,7 @@ class FetchEvidenceTests(unittest.TestCase):
         html = f"<html><body><p>{big_text}</p></body></html>".encode("utf-8")
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = html
+        mock_response.iter_content.return_value = [html]
         mock_get.return_value = mock_response
 
         result = fetch_evidence("https://example.com/big")
@@ -106,10 +107,18 @@ class FetchEvidenceTests(unittest.TestCase):
 
     @patch("tools.evidence_fetcher.requests.get")
     def test_response_over_max_size_is_rejected_as_structured_error(self, mock_get):
-        oversized = b"x" * (MAX_RESPONSE_SIZE + 1)
+        chunk = b"x" * READ_CHUNK_SIZE
+        total_chunks = MAX_RESPONSE_SIZE // READ_CHUNK_SIZE + 10
+        consumed = []
+
+        def stream(chunk_size):
+            for _ in range(total_chunks):
+                consumed.append(1)
+                yield chunk
+
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.content = oversized
+        mock_response.iter_content.side_effect = stream
         mock_get.return_value = mock_response
 
         result = fetch_evidence("https://example.com/huge")
@@ -117,6 +126,26 @@ class FetchEvidenceTests(unittest.TestCase):
         self.assertIsNone(result["content"])
         self.assertIsNotNone(result["error"])
         self.assertIn("size", result["error"].lower())
+        # Reading stops at the first chunk past the limit.
+        self.assertEqual(len(consumed), MAX_RESPONSE_SIZE // READ_CHUNK_SIZE + 1)
+
+    @patch("tools.evidence_fetcher.requests.get")
+    def test_error_while_reading_body_returns_structured_error(self, mock_get):
+        import requests as real_requests
+
+        def stream(chunk_size):
+            yield b"<html><body>partial"
+            raise real_requests.exceptions.ChunkedEncodingError("connection reset")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.iter_content.side_effect = stream
+        mock_get.return_value = mock_response
+
+        result = fetch_evidence("https://example.com/reset")
+
+        self.assertIsNone(result["content"])
+        self.assertIn("read error", result["error"])
 
 
 class BatchFetchTests(unittest.TestCase):
