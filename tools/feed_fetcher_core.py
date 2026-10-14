@@ -29,10 +29,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-try:
-    import yaml
-except ImportError:
-    yaml = None
+import yaml
 
 
 # ── data model ──────────────────────────────────────────────────────────────
@@ -69,68 +66,9 @@ class FeedItem:
 # ── config loader ───────────────────────────────────────────────────────────
 
 def load_config(path: Path) -> list[Source]:
-    if yaml:
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    else:
-        # Fallback: manual YAML parsing for this specific structure
-        data = _parse_yaml_simple(path)
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
     return [Source(**s) for s in data.get("sources", [])]
-
-
-def _parse_yaml_simple(path: Path) -> dict:
-    """Minimal YAML parser for the sources config format (no PyYAML needed)."""
-    text = path.read_text(encoding="utf-8")
-    sources: list[dict] = []
-    current: dict | None = None
-    in_tags = False
-
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("#") or not stripped:
-            continue
-
-        if stripped.startswith("- id:"):
-            if current:
-                sources.append(current)
-            current = {}
-            in_tags = False
-            key, val = _parse_kv(stripped[2:])
-            if key:
-                current[key] = val
-        elif current is not None:
-            if stripped.startswith("tags:"):
-                in_tags = True
-                bracket = stripped[5:].strip()
-                if bracket.startswith("[") and bracket.endswith("]"):
-                    current["tags"] = [
-                        t.strip().strip("'\"")
-                        for t in bracket[1:-1].split(",")
-                        if t.strip()
-                    ]
-                    in_tags = False
-            elif in_tags and stripped.startswith("- "):
-                current.setdefault("tags", []).append(
-                    stripped[2:].strip().strip("'\"")
-                )
-            else:
-                in_tags = False
-                key, val = _parse_kv(stripped)
-                if key:
-                    current[key] = val
-
-    if current:
-        sources.append(current)
-    return {"sources": sources}
-
-
-def _parse_kv(line: str) -> tuple[str | None, str | None]:
-    if ":" not in line:
-        return None, None
-    key, _, val = line.partition(":")
-    key = key.strip()
-    val = val.strip().strip("'\"")
-    return key, val
 
 
 # ── RSS / Atom parser (stdlib only) ─────────────────────────────────────────

@@ -48,9 +48,8 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertNotIn("model", graph)
         self.assertEqual(graph.get("temperature"), 0.2)
 
-    def test_skill_yaml_loads_without_pyyaml(self):
-        with patch("tools.config_loader.yaml", None):
-            skill = _load_mapping(ROOT / "skill.yaml")
+    def test_skill_yaml_loads(self):
+        skill = _load_mapping(ROOT / "skill.yaml")
         # Version no longer lives in skill.yaml (single source = pyproject.toml).
         self.assertNotIn("version", skill)
         self.assertEqual(skill["name"], "economic-news-analysis")
