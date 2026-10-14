@@ -449,9 +449,11 @@ def collect_evidence_node(
     )
     selected = sorted_candidates[: max(0, int(research_max_items))]
 
-    # DEBUG
-    _debug_urls = [str(i.get("url",""))[:80] for i in selected]
-    logger.warning("COLLECT_EVIDENCE selected=%d urls=%s", len(selected), _debug_urls)
+    logger.debug(
+        "collect_evidence selected=%d urls=%s",
+        len(selected),
+        [str(item.get("url", ""))[:80] for item in selected],
+    )
 
     timeout = int(config.get("timeout_seconds", 15))
     evidence: list[dict[str, Any]] = []
