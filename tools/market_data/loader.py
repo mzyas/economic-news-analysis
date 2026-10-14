@@ -6,72 +6,20 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ..config_loader import ROOT
 from .models import MarketDataResult, MarketSymbol
 from .registry import get_market_data_provider
 from ..schema_validation import validate_file
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
-
-
-def _parse_scalar(value: str) -> Any:
-    value = value.strip().strip("'\"")
-    if value in {"null", "~"}:
-        return None
-    if value in {"true", "false"}:
-        return value == "true"
-    return value
-
-
-def _parse_market_sources_simple(text: str) -> dict[str, Any]:
-    data: dict[str, Any] = {"defaults": {}, "symbols": []}
-    section: str | None = None
-    current_symbol: dict[str, Any] | None = None
-
-    for raw in text.splitlines():
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped == "defaults:":
-            section = "defaults"
-            continue
-        if stripped == "symbols:":
-            section = "symbols"
-            continue
-        if stripped.startswith("- id:"):
-            if current_symbol:
-                data["symbols"].append(current_symbol)
-            current_symbol = {"id": _parse_scalar(stripped.partition(":")[2])}
-            section = "symbols"
-            continue
-        if ":" not in stripped:
-            continue
-        key, _, value = stripped.partition(":")
-        key = key.strip()
-        parsed = _parse_scalar(value)
-        if section == "defaults":
-            data["defaults"][key] = parsed
-        elif section == "symbols" and current_symbol is not None:
-            current_symbol[key] = parsed
-        else:
-            data[key] = parsed
-
-    if current_symbol:
-        data["symbols"].append(current_symbol)
-    return data
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     if path.suffix.lower() == ".json":
         data = json.loads(text)
-    elif yaml is not None:
-        data = yaml.safe_load(text)
     else:
-        data = _parse_market_sources_simple(text)
+        data = yaml.safe_load(text)
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a mapping at the document root")
     return data

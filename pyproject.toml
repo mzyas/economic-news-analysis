@@ -8,8 +8,10 @@ dependencies = [
   "yfinance>=0.2.0",
   "langgraph>=0.4.0",
   "langgraph-checkpoint-sqlite>=2.0.0",
-  "langchain-openai>=0.3.0",
   "PyYAML>=6.0",
+  "requests>=2.31",
+  "beautifulsoup4>=4.12",
+  "typing-extensions>=4.7; python_version < '3.11'",
 ]
 
 [dependency-groups]

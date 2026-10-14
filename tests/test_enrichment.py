@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from tools.config_loader import ROOT, load_runtime_config
-from tools.credentials import FakeCredentialProvider
 from tools.enrichment import apply_enrichment, apply_translations, load_enrichment, load_translations, validate_email_readiness
 from tools.runtime import execute
 
@@ -25,7 +24,6 @@ class EnrichmentTests(unittest.TestCase):
                 "url": "https://news.google.com/example",
             }
         ]
-        config.setdefault("graph", {})["_credential_provider"] = FakeCredentialProvider([])
         return execute(config)
 
     def _official_briefing_result(self):
@@ -34,7 +32,6 @@ class EnrichmentTests(unittest.TestCase):
             "title": "Industrial production rises", "summary": "Industrial production rose 4.5 percent.",
             "source_id": "fed_fomc", "source_name": "Official source", "source_country": "US",
         }]
-        config.setdefault("graph", {})["_credential_provider"] = FakeCredentialProvider([])
         return execute(config)
 
     def test_apply_translations_updates_item_analysis_and_briefing(self):

@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import os
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ._version import __version__ as _PKG_VERSION
 from .schema_validation import validate_file
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,86 +18,10 @@ DEFAULT_SKILL_CONFIG = ROOT / "skill.yaml"
 
 
 def _load_mapping(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    if yaml is not None:
-        data = yaml.safe_load(text)
-    else:
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
-            data = _parse_simple_yaml_mapping(text)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a mapping at the document root")
     return data
-
-
-def _parse_scalar(value: str) -> Any:
-    value = value.strip()
-    if value in {"null", "~"}:
-        return None
-    if value in {"true", "false"}:
-        return value == "true"
-    if value == "{}":
-        return {}
-    if value == "[]":
-        return []
-    if value.startswith("[") and value.endswith("]"):
-        return [
-            _parse_scalar(part)
-            for part in value[1:-1].split(",")
-            if part.strip()
-        ]
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        return value[1:-1]
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    try:
-        return float(value)
-    except ValueError:
-        return value
-
-
-def _parse_simple_yaml_mapping(text: str) -> dict[str, Any]:
-    root: dict[str, Any] = {}
-    stack: list[tuple[int, dict[str, Any]]] = [(-1, root)]
-    lines = text.splitlines()
-    index = 0
-    while index < len(lines):
-        raw = lines[index]
-        stripped = raw.strip()
-        index += 1
-        if not stripped or stripped.startswith("#"):
-            continue
-        indent = len(raw) - len(raw.lstrip(" "))
-        if ":" not in stripped:
-            continue
-        key, _, value = stripped.partition(":")
-        while stack[-1][0] >= indent:
-            stack.pop()
-        parent = stack[-1][1]
-        value = value.strip()
-        if value == ">":
-            folded: list[str] = []
-            while index < len(lines):
-                next_raw = lines[index]
-                next_indent = len(next_raw) - len(next_raw.lstrip(" "))
-                if next_raw.strip() and next_indent <= indent:
-                    break
-                index += 1
-                if next_raw.strip():
-                    folded.append(next_raw.strip())
-            parent[key] = " ".join(folded)
-        elif value:
-            parent[key] = _parse_scalar(value)
-        else:
-            child: dict[str, Any] = {}
-            parent[key] = child
-            stack.append((indent, child))
-    return root
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

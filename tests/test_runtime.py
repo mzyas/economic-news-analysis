@@ -11,7 +11,6 @@ from tools._version import __version__ as PKG_VERSION
 from tools.config_loader import ROOT, load_runtime_config
 from tools.runtime import execute
 from tools.schema_validation import validate_file
-from tools.credentials import FakeCredentialProvider
 from tools.workflow_smoke import _stub_invoke
 
 
@@ -30,16 +29,11 @@ class _StubLLM:
 def _hermetic_graph() -> dict:
     """Graph overrides that make an offline run deterministic and self-contained.
 
-    Without these, ``execute`` falls through to the default credential provider,
-    which reads the host env var / OS credential store — so the run's outcome
-    depends on whether a real LLM key happens to be available (green locally,
-    ``partial_success`` in CI). Injecting an empty credential provider plus a
-    stub LLM (and disabling the checkpointer so the live stub is never
-    serialized) yields a deterministic ``success`` everywhere.
+    Injecting a stub LLM (and disabling the checkpointer so the live stub is
+    never serialized) yields a deterministic ``success`` everywhere.
     """
     return {
         "checkpoint_path": None,
-        "_credential_provider": FakeCredentialProvider([]),
         "_fake_llm": _StubLLM(),
     }
 

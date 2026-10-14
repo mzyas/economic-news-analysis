@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 MAX_RESPONSE_SIZE = 2 * 1024 * 1024
+READ_CHUNK_SIZE = 64 * 1024
 REQUEST_TIMEOUT = 15
 MAX_TEXT_LENGTH = 10000
 
@@ -43,8 +44,9 @@ def fetch_evidence(url: str, timeout: int = REQUEST_TIMEOUT) -> dict[str, Any]:
 
     Args:
         url: The source URL to fetch.
-        timeout: Request timeout in seconds. Applied as (connect_timeout, read_timeout)
-            where read_timeout is doubled to handle slow Chinese government sites.
+        timeout: Request timeout in seconds. Split into a connect timeout of
+            0.4x (at least 10s) and a read timeout of 1.5x (at least 30s), so
+            slow Chinese government sites can finish sending.
 
     Returns:
         A dict with keys: url, content, error, truncated.
@@ -83,14 +85,25 @@ def fetch_evidence(url: str, timeout: int = REQUEST_TIMEOUT) -> dict[str, Any]:
             result["error"] = f"http {response.status_code}"
             return result
 
-        content = response.content
-        if len(content) > MAX_RESPONSE_SIZE:
-            result["error"] = (
-                f"response exceeds max size of {MAX_RESPONSE_SIZE} bytes"
-            )
+        # Count bytes while streaming so an oversized body is abandoned
+        # before it is fully downloaded into memory.
+        chunks: list[bytes] = []
+        size = 0
+        try:
+            for chunk in response.iter_content(chunk_size=READ_CHUNK_SIZE):
+                size += len(chunk)
+                if size > MAX_RESPONSE_SIZE:
+                    result["error"] = (
+                        f"response exceeds max size of {MAX_RESPONSE_SIZE} bytes"
+                    )
+                    return result
+                chunks.append(chunk)
+        except requests.RequestException as exc:
+            result["error"] = f"read error: {exc}"
+            logger.warning("evidence fetch read error url=%s err=%s", url, exc)
             return result
 
-        text = _extract_text(content)
+        text = _extract_text(b"".join(chunks))
         if not text or not text.strip():
             result["error"] = "empty body"
             return result
